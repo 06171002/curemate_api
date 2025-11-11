@@ -1,25 +1,18 @@
+# worker.py (수정)
+
 import os
 import sys
-import job_manager  # (DB 관리자)
-import stt_service  # (STT 전문가)
-import ollama_service  # (요약 전문가)
+import asyncio  # <--- 1. asyncio를 임포트합니다.
+import job_manager
+import stt_service
+import ollama_service
 from celery_config import celery_app
 
-
-# (참고) ollama_service.get_summary가 async 함수이므로,
-# 이 총괄 함수도 async def로 선언하는 것이 좋습니다.
-@celery_app.task
-async def run_stt_and_summary_pipeline(job_id: str, audio_file_path: str):
+# 2. (이름 변경) 기존 async 함수를 내부용(private) 함수로 변경합니다. (예: 맨 앞에 _ 추가)
+async def _run_pipeline_async(job_id: str, audio_file_path: str):
     """
     (F-API-01이 호출하는) 백그라운드 작업의 메인 파이프라인.
-
-    1. 상태를 'processing'으로 변경
-    2. STT 실행 (stt_service)
-    3. 상태를 'transcribed'로 변경 + 결과 저장 (job_manager)
-    4. 요약 실행 (ollama_service)
-    5. 상태를 'completed'로 변경 + 결과 저장 (job_manager)
-    6. (오류 시) 상태를 'failed'로 변경
-    7. (항상) 임시 파일 삭제
+    ... (이 함수 내부의 모든 코드는 100% 동일합니다) ...
     """
 
     print(f"[Worker] 🔵 작업 시작 (Job ID: {job_id}, File: {audio_file_path})")
@@ -29,8 +22,6 @@ async def run_stt_and_summary_pipeline(job_id: str, audio_file_path: str):
         job_manager.update_job(job_id, {"status": "processing"})
 
         # --- 2. STT 실행 ---
-        # stt_service.transcribe는 CPU/GPU를 많이 쓰는 작업이므로
-        # (I/O bound가 아니므로) 'await' 없이 동기적으로 실행합니다.
         print(f"[Worker] (Job {job_id}) STT 작업을 시작합니다...")
         transcript_text = stt_service.transcribe_audio(audio_file_path)
         print(f"[Worker] (Job {job_id}) STT 작업 완료.")
@@ -41,11 +32,8 @@ async def run_stt_and_summary_pipeline(job_id: str, audio_file_path: str):
             "original_transcript": transcript_text
         }
         job_manager.update_job(job_id, stt_result_data)
-        # (이 시점부터 클라이언트는 Polling 시 STT 결과를 볼 수 있습니다!)
 
         # --- 4. 요약 실행 ---
-        # ollama_service.get_summary는 I/O bound(네트워크) 작업이므로
-        # 'await'로 비동기 실행합니다.
         print(f"[Worker] (Job {job_id}) Ollama 요약 작업을 시작합니다...")
         summary_dict = await ollama_service.get_summary(transcript_text)
         print(f"[Worker] (Job {job_id}) Ollama 요약 작업 완료.")
@@ -62,23 +50,31 @@ async def run_stt_and_summary_pipeline(job_id: str, audio_file_path: str):
     except Exception as e:
         # --- 6. (오류 발생 시) 상태를 'failed'로 변경 ---
         print(f"[Worker] 🔴 작업 실패 (Job ID: {job_id}): {e}", file=sys.stderr)
-        # (traceback도 로그에 남기면 디버깅에 좋습니다)
         import traceback
         traceback.print_exc()
 
         error_data = {
             "status": "failed",
-            "error_message": str(e)  # 오류 메시지를 DB에 저장
+            "error_message": str(e)
         }
         job_manager.update_job(job_id, error_data)
 
     finally:
         # --- 7. (항상) 임시 파일 삭제 ---
-        # 작업이 성공하든 실패하든, 서버에 쌓이는 임시 파일을 삭제합니다.
         if os.path.exists(audio_file_path):
             try:
                 os.remove(audio_file_path)
                 print(f"[Worker] (Job {job_id}) 임시 파일 삭제 완료: {audio_file_path}")
             except Exception as e:
-                # (파일 삭제 실패는 Job 상태를 바꾸진 않습니다)
                 print(f"[Worker] ⚠️ (Job {job_id}) 임시 파일 삭제 실패: {e}", file=sys.stderr)
+
+
+# 3. (신규) Celery Task를 '동기식' 함수로 만듭니다.
+@celery_app.task
+def run_stt_and_summary_pipeline(job_id: str, audio_file_path: str):
+    """
+    이것은 Celery가 호출할 '동기식' 래퍼(Wrapper) 함수입니다.
+    이 함수의 유일한 역할은 '비동기' 파이프라인을
+    asyncio.run()을 통해 실행하고, 끝날 때까지 기다리는 것입니다.
+    """
+    asyncio.run(_run_pipeline_async(job_id, audio_file_path))
