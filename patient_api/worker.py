@@ -3,10 +3,12 @@ import sys
 import job_manager  # (DB 관리자)
 import stt_service  # (STT 전문가)
 import ollama_service  # (요약 전문가)
+from celery_config import celery_app
 
 
 # (참고) ollama_service.get_summary가 async 함수이므로,
 # 이 총괄 함수도 async def로 선언하는 것이 좋습니다.
+@celery_app.task
 async def run_stt_and_summary_pipeline(job_id: str, audio_file_path: str):
     """
     (F-API-01이 호출하는) 백그라운드 작업의 메인 파이프라인.

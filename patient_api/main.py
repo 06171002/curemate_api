@@ -5,7 +5,6 @@ from fastapi import (
     FastAPI,
     UploadFile,
     File,
-    BackgroundTasks,
     HTTPException
 )
 
@@ -60,7 +59,6 @@ def read_root():
 # (F-API-01) 대화 내용 처리 요청 (비동기 작업 생성)
 @app.post("/api/v1/conversation/request", status_code=202)
 async def create_conversation_request(
-        background_tasks: BackgroundTasks,
         file: UploadFile = File(...)
 ):
     """
@@ -96,8 +94,7 @@ async def create_conversation_request(
 
     # 4. (★핵심) 백그라운드 작업 예약
     # worker.py의 run_stt_and_summary_pipeline 함수를 호출
-    background_tasks.add_task(
-        worker.run_stt_and_summary_pipeline,
+    worker.run_stt_and_summary_pipeline.delay(
         job_id,
         temp_file_path
     )
