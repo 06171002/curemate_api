@@ -8,8 +8,8 @@ from fastapi import (
 from patient_api.domain.streaming_job import StreamingJob
 from patient_api.repositories import job_repository
 from patient_api.services import ollama_service, stt_service
-# (★중요) main.py에 정의된 전역 Job 매니저(dict)를 임포트
-from patient_api.main import active_jobs
+# (★수정) main.py 대신 core.config에서 임포트
+from patient_api.core.config import active_jobs
 
 router = APIRouter()
 

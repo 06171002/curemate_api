@@ -1,24 +1,15 @@
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from typing import Dict
+
 
 # --- 1. 우리가 만든 서비스 모듈 임포트 ---
 # (Lifespan에서 사용하기 위해 필요)
 from patient_api.services import ollama_service, stt_service 
 # (라우터 임포트)
 from patient_api.api import batch_endpoints, stream_endpoints
-# (도메인 클래스 임포트)
-from patient_api.domain.streaming_job import StreamingJob
-
-# --- 2. 설정 ---
-# (라우터 파일들이 이 변수를 임포트해갈 수 있음)
-TEMP_AUDIO_DIR = "temp_audio"
-
-# (F-JOB-02) StreamJobManager: 활성 스트림 작업을 관리하는 전역 딕셔너리
-# (api/stream_endpoints.py 파일에서 이 변수를 임포트하여 사용)
-active_jobs: Dict[str, StreamingJob] = {}
-
+# (★수정) core.config 파일에서 설정값 임포트
+from patient_api.core.config import TEMP_AUDIO_DIR
 
 # --- 3. Lifespan 이벤트 핸들러 ---
 @asynccontextmanager

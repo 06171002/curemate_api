@@ -9,7 +9,8 @@ from fastapi import (
 # (★중요) refactoring된 경로로 임포트
 from patient_api.repositories import job_repository
 from patient_api.services import tasks
-from patient_api.main import TEMP_AUDIO_DIR # (main.py에서 설정값 가져오기)
+# (★수정) main.py 대신 core.config에서 임포트
+from patient_api.core.config import TEMP_AUDIO_DIR
 
 # "컨트롤러" 역할을 할 APIRouter 객체 생성
 router = APIRouter()

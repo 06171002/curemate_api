@@ -16,7 +16,8 @@ import sys
 # (또는 Windows PowerShell에서)
 # > ipconfig
 # (vEthernet (WSL) 어댑터의 IPv4 주소)
-WSL_HOST_IP = "172.21.192.1"  # (<- 예시 IP입니다. 본인 IP로 꼭 수정!)
+# WSL_HOST_IP = "172.21.192.1"
+WSL_HOST_IP = "localhost"
 # ================================================================
 
 API_BASE_URL = f"http://{WSL_HOST_IP}:8000"
