@@ -1,4 +1,4 @@
-# realtime_vad.py (새 파일)
+
 
 import webrtcvad
 from collections import deque

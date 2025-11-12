@@ -1,11 +1,10 @@
-# worker.py (수정)
+
 
 import os
 import sys
 import asyncio  # <--- 1. asyncio를 임포트합니다.
 import job_manager
-import stt_service
-import ollama_service
+from patient_api.services import ollama_service, stt_service
 from celery_config import celery_app
 
 # 2. (이름 변경) 기존 async 함수를 내부용(private) 함수로 변경합니다. (예: 맨 앞에 _ 추가)

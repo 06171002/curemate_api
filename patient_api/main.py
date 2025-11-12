@@ -5,18 +5,24 @@ from fastapi import (
     FastAPI,
     UploadFile,
     File,
-    HTTPException
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect
 )
+from typing import Dict
 
 # --- 1. 우리가 만든 서비스 모듈 임포트 ---
-import stt_service
-import ollama_service
-import job_manager
-import worker
+from patient_api.services import ollama_service, stt_service, tasks
+from patient_api.repositories import job_repository
+from patient_api.domain.streaming_job import StreamingJob
 
 # --- 2. 설정 ---
 # 업로드된 오디오 파일을 임시 저장할 디렉터리
 TEMP_AUDIO_DIR = "temp_audio"
+
+# (F-JOB-02) StreamJobManager: 활성 스트림 작업을 관리하는 전역 딕셔너리
+# (사용자님이 제안한 STTHELPER)
+active_jobs: Dict[str, StreamingJob] = {}
 
 
 # --- 3. (기존) Lifespan 이벤트 핸들러 ---
@@ -89,12 +95,12 @@ async def create_conversation_request(
 
     # 3. Job을 'pending' 상태로 DB(Redis)에 생성
     # (metadata가 있다면 여기서 함께 전달)
-    if not job_manager.create_job(job_id, metadata={"filename": file.filename}):
+    if not job_repository.create_job(job_id, metadata={"filename": file.filename}):
         raise HTTPException(status_code=500, detail="Job을 생성하는데 실패했습니다 (Redis 연결 확인)")
 
     # 4. (★핵심) 백그라운드 작업 예약
     # worker.py의 run_stt_and_summary_pipeline 함수를 호출
-    worker.run_stt_and_summary_pipeline.delay(
+    tasks.run_stt_and_summary_pipeline.delay(
         job_id,
         temp_file_path
     )
@@ -116,7 +122,7 @@ def get_conversation_result(job_id: str):
     """
 
     # 1. DB(Redis)에서 Job 정보 조회
-    job = job_manager.get_job(job_id)
+    job = job_repository.get_job(job_id)
 
     # 2. Job이 없는 경우 404
     if not job:
@@ -157,3 +163,94 @@ def get_conversation_result(job_id: str):
             "job_id": job_id,
             "status": status
         }
+
+
+# --- 5.2 (신규) 실시간 스트리밍 API ---
+
+# (F-API-03) 실시간 스트림 작업 생성
+@app.post("/api/v1/stream/create", status_code=201)
+def create_stream_job():
+    """
+    (F-API-03) 실시간 화상 통화를 위한 StreamingJob을 생성합니다.
+    Redis DB에도 레코드를 생성하고,
+    인메모리(active_jobs)에도 Job 인스턴스를 생성합니다.
+    """
+    # 1. (F-JOB-01) StreamingJob 인스턴스 생성
+    job = StreamingJob(metadata={})  # (나중에 metadata=... 전달 가능)
+
+    # 2. (F-JOB-02) 전역 매니저(dict)에 등록
+    active_jobs[job.job_id] = job
+
+    # 3. (F-DB-01) Redis에도 'pending' 레코드 생성 (히스토리 저장용)
+    if not job_manager.create_job(job.job_id, job.metadata):  #
+        # Redis 생성 실패 시, 인메모리 Job도 정리
+        del active_jobs[job.job_id]
+        raise HTTPException(status_code=500, detail="Job을 Redis에 생성하는데 실패했습니다.")
+
+    print(f"[JobManager] 🟢 새 스트림 작업 생성됨 (Job ID: {job.job_id})")
+
+    # 4. 클라이언트에게 job_id 반환
+    return {"job_id": job.job_id}
+
+
+# (F-API-04) 실시간 STT 스트리밍 (테스트용)
+@app.websocket("/ws/v1/stream/{job_id}")
+async def conversation_stream(websocket: WebSocket, job_id: str):
+    """
+    (F-API-04) job_id에 해당하는 스트림 작업을 찾아 WebSocket을 연결합니다.
+    (테스트 단계에서는 VAD/STT 대신, 청크 수신 확인만 합니다)
+    """
+
+    # 1. (F-JOB-02) 매니저에서 Job 인스턴스 조회
+    job = active_jobs.get(job_id)
+
+    if not job:
+        print(f"[WebSocket] 🔴 존재하지 않는 Job ID로 연결 시도: {job_id}")
+        await websocket.close(code=1008, reason="Job ID not found")
+        return
+
+    # 2. 연결 수락
+    await websocket.accept()
+    print(f"[WebSocket] 🟢 클라이언트 연결됨 (Job: {job_id})")
+
+    # 3. (테스트) 연결 성공 메시지 전송
+    await websocket.send_json({
+        "type": "connection_success",
+        "message": f"Job {job_id}에 성공적으로 연결되었습니다."
+    })
+
+    try:
+        # --- (테스트) 오디오 청크 수신 루프 ---
+        while True:
+            # 클라이언트로부터 오디오 바이트 수신
+            audio_chunk = await websocket.receive_bytes()
+
+            # (테스트) 실제 VAD 로직 대신, 받았다고 확인만 보냄
+            # (나중에 이 부분을 job.process_audio_chunk(audio_chunk)로 교체)
+            print(f"[WebSocket] (Job {job_id}) 오디오 청크 수신: {len(audio_chunk)} bytes")
+
+            # (테스트) 클라이언트에게 수신 확인 메시지 전송
+            await websocket.send_json({
+                "type": "chunk_received",
+                "received_bytes": len(audio_chunk)
+            })
+
+    except WebSocketDisconnect:
+        print(f"[WebSocket] 🟡 클라이언트 연결 끊김 (Job: {job_id})")
+        # (나중에 여기에 요약 및 DB 저장 로직 추가)
+        # final_transcript = job.get_full_transcript()
+        # summary = await ollama_service.get_summary(final_transcript)
+        # job_manager.update_job(job.job_id, {"status": "completed", ...})
+
+    except Exception as e:
+        print(f"[WebSocket] 🔴 예기치 않은 오류: {e}")
+
+    finally:
+        # (F-JOB-02) 매니저(dict)에서 Job 제거 (메모리 누수 방지!)
+        if job_id in active_jobs:
+            del active_jobs[job_id]
+            print(f"[JobManager] 🔴 스트림 작업 제거됨 (메모리 정리): {job_id}")
+
+
+
+
