@@ -17,7 +17,7 @@ import sys
 # > ipconfig
 # (vEthernet (WSL) 어댑터의 IPv4 주소)
 # WSL_HOST_IP = "172.21.192.1"
-WSL_HOST_IP = "localhost"
+WSL_HOST_IP = "127.0.0.1"
 # ================================================================
 
 API_BASE_URL = f"http://{WSL_HOST_IP}:8000"
