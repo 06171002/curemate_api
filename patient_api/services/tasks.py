@@ -3,9 +3,9 @@
 import os
 import sys
 import asyncio  # <--- 1. asyncio를 임포트합니다.
-import job_manager
+from patient_api.repositories import job_repository
 from patient_api.services import ollama_service, stt_service
-from celery_config import celery_app
+from patient_api.core.celery_config import celery_app
 
 # 2. (이름 변경) 기존 async 함수를 내부용(private) 함수로 변경합니다. (예: 맨 앞에 _ 추가)
 async def _run_pipeline_async(job_id: str, audio_file_path: str):
@@ -18,7 +18,7 @@ async def _run_pipeline_async(job_id: str, audio_file_path: str):
 
     try:
         # --- 1. 상태 변경: processing ---
-        job_manager.update_job(job_id, {"status": "processing"})
+        job_repository.update_job(job_id, {"status": "processing"})
 
         # --- 2. STT 실행 ---
         print(f"[Worker] (Job {job_id}) STT 작업을 시작합니다...")
@@ -30,7 +30,7 @@ async def _run_pipeline_async(job_id: str, audio_file_path: str):
             "status": "transcribed",
             "original_transcript": transcript_text
         }
-        job_manager.update_job(job_id, stt_result_data)
+        job_repository.update_job(job_id, stt_result_data)
 
         # --- 4. 요약 실행 ---
         print(f"[Worker] (Job {job_id}) Ollama 요약 작업을 시작합니다...")
@@ -42,7 +42,7 @@ async def _run_pipeline_async(job_id: str, audio_file_path: str):
             "status": "completed",
             "structured_summary": summary_dict
         }
-        job_manager.update_job(job_id, final_result_data)
+        job_repository.update_job(job_id, final_result_data)
 
         print(f"[Worker] 🟢 작업 성공 (Job ID: {job_id})")
 
@@ -56,7 +56,7 @@ async def _run_pipeline_async(job_id: str, audio_file_path: str):
             "status": "failed",
             "error_message": str(e)
         }
-        job_manager.update_job(job_id, error_data)
+        job_repository.update_job(job_id, error_data)
 
     finally:
         # --- 7. (항상) 임시 파일 삭제 ---

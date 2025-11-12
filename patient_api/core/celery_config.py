@@ -9,7 +9,7 @@ BROKER_URL = 'redis://localhost:6379/0'
 celery_app = Celery(
     'curemate_tasks',
     broker=BROKER_URL,
-    include=['worker']  # 'tasks.py' 파일에서 작업을 스캔하라는 의미
+    include=['patient_api.services.tasks']  # 'tasks.py' 파일에서 작업을 스캔하라는 의미
 )
 
 # 3. (중요) 결과 백엔드 설정 안 함!
