@@ -134,6 +134,3 @@ def transcribe_audio_streaming(file_path: str):
             full_transcript_parts.append(segment_text)
             # (★핵심) 감지된 세그먼트를 즉시 yield
             yield segment_text
-
-            # (★핵심) 모든 STT가 끝나면, 전체 텍스트를 반환
-    yield " ".join(full_transcript_parts)

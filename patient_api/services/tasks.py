@@ -16,77 +16,52 @@ async def _run_pipeline_async(job_id: str, audio_file_path: str):
 
     print(f"[Worker] 🔵 작업 시작 (Job ID: {job_id}, File: {audio_file_path})")
 
-    full_transcript = None
-
     try:
-        # --- 1. 상태 변경: processing ---
+        # --- 1. 상태 변경 ---
         job_repository.update_job(job_id, {"status": "processing"})
 
-        # --- 2. STT 실행 ---
-        print(f"[Worker] (Job {job_id}) STT 작업을 시작합니다...")
-        stt_generator = stt_service.transcribe_audio_streaming(audio_file_path)
-        print(f"[Worker] (Job {job_id}) STT 작업 완료.")
+        # --- 2. (★수정) STT 실행 (제너레이터 사용) ---
+        print(f"[Worker] (Job {job_id}) STT (Streaming) 작업을 시작합니다...")
 
-        for segment_or_full in stt_generator:
-            # 마지막 yield(full_transcript) 전까지는 segment_text
-            # (이 방식은 마지막 yield를 구분해야 하므로, stt_service 수정이 필요)
+        transcript_segments = []
+        # (★수정) for 루프가 여기서 시작됩니다.
+        for segment in stt_service.transcribe_audio_streaming(audio_file_path):
+            transcript_segments.append(segment)
 
-            # (★수정 - 더 간단한 방식)
-            # stt_service.transcribe_audio_streaming이
-            # (1) segment를 yield하고, (2) 마지막에 full_text를 return 하도록 수정
-
-            # (임시 수정 - stt_service.py의 yield가 2번 이상 실행된다고 가정)
-
-            # (stt_service.py를 수정하지 않고 진행하는 방식)
-            # transcribe_audio_streaming의 마지막 yield 값은 항상 "전체 텍스트"임.
-
-            # (stt_service.py 수정이 필요합니다.
-            #  transcribe_audio_streaming이 (segment, full_text) 튜플을 yield하거나
-            #  transcribe_audio가 콜백 함수를 받도록 수정해야 합니다.)
-
-            # --- (가장 간단한 수정안으로 다시 설계) ---
-            # _run_pipeline_async 함수를 수정합니다.
-
-            # (★수정) STT 실행 (제너레이터 사용)
-            transcript_segments = []
-            for segment in stt_service.transcribe_audio_streaming(audio_file_path):
-                transcript_segments.append(segment)
-
-                # (★핵심) 세그먼트를 Redis Pub/Sub으로 발행
-                message_data = {
-                    "type": "transcript_segment",
-                    "text": segment
-                }
-                job_repository.publish_message(job_id, message_data)
-
-            full_transcript = " ".join(transcript_segments)
-
-            # --- 3. (DB 저장) STT 완료 상태를 DB에 저장 ---
-            stt_result_data = {
-                "status": "transcribed",
-                "original_transcript": full_transcript
+            message_data = {
+                "type": "transcript_segment",
+                "text": segment
             }
-            job_repository.update_job(job_id, stt_result_data)
+            job_repository.publish_message(job_id, message_data)
 
-            # --- 4. 요약 실행 ---
-            print(f"[Worker] (Job {job_id}) Ollama 요약 작업을 시작합니다...")
-            summary_dict = await ollama_service.get_summary(full_transcript)
+        # (★수정) for 루프가 끝난 후, (들여쓰기 수정)
+        # --- 3. (DB 저장) STT 완료 상태를 DB에 저장 ---
+        full_transcript = " ".join(transcript_segments)
+        stt_result_data = {
+            "status": "transcribed",
+            "original_transcript": full_transcript
+        }
+        job_repository.update_job(job_id, stt_result_data)
 
-            # (★핵심) 요약 결과를 Pub/Sub으로 발행
-            summary_message = {
-                "type": "final_summary",
-                "summary": summary_dict
-            }
-            job_repository.publish_message(job_id, summary_message)
+        # --- 4. 요약 실행 ---
+        print(f"[Worker] (Job {job_id}) Ollama 요약 작업을 시작합니다...")
+        summary_dict = await ollama_service.get_summary(full_transcript)
 
-            # --- 5. (DB 저장) 최종 상태를 DB에 저장 ---
-            final_result_data = {
-                "status": "completed",
-                "structured_summary": summary_dict
-            }
-            job_repository.update_job(job_id, final_result_data)
+        # (★핵심) 요약 결과를 Pub/Sub으로 발행
+        summary_message = {
+            "type": "final_summary",
+            "summary": summary_dict
+        }
+        job_repository.publish_message(job_id, summary_message)
 
-            print(f"[Worker] 🟢 작업 성공 (Job ID: {job_id})")
+        # --- 5. (DB 저장) 최종 상태를 DB에 저장 ---
+        final_result_data = {
+            "status": "completed",
+            "structured_summary": summary_dict
+        }
+        job_repository.update_job(job_id, final_result_data)
+
+        print(f"[Worker] 🟢 작업 성공 (Job ID: {job_id})")
 
     except Exception as e:
         # --- 6. (오류 발생 시) 상태를 'failed'로 변경 ---

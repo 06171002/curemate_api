@@ -1,23 +1,41 @@
 import redis
 import json
 import asyncio
+import redis.asyncio as aioredis
+import time
 from typing import Dict, Any, Optional
+
 
 # --- 1. Redis 연결 설정 ---
 
-# 'decode_responses=True'가 중요합니다.
-# 이게 없으면 Redis가 문자열 대신 bytes(예: b'hello')를 반환합니다.
-try:
-    # Docker로 띄운 Redis는 기본적으로 localhost:6379 입니다.
-    redis_client = redis.Redis(host='redis', port=6379, decode_responses=True)
-    redis_client_bytes = redis.Redis(host='redis', port=6379, decode_responses=False)
-    redis_client.ping()
-    print("✅ Redis에 성공적으로 연결되었습니다.")
-except redis.exceptions.ConnectionError as e:
-    print(f"❌ Redis 연결 실패: {e}")
-    print("Docker에서 Redis 컨테이너가 실행 중인지 확인하세요. (docker ps)")
-    redis_client = None  # 연결 실패 시 None으로 설정
-    redis_client_bytes = None
+def connect_to_redis(max_retries=5, delay=2):
+    """
+    (★신규) Redis가 준비될 때까지 재시도하며 연결합니다.
+    """
+    for i in range(max_retries):
+        try:
+            # (★수정) 'host'를 'redis'로 사용
+            client = redis.Redis(host='redis', port=6379, decode_responses=True)
+            client_bytes = redis.Redis(host='redis', port=6379, decode_responses=False)
+
+            client.ping()  # (★수정) 연결 테스트
+
+            print(f"✅ Redis에 성공적으로 연결되었습니다. (시도 {i + 1}회)")
+            return client, client_bytes  # (★수정) 성공 시 클라이언트 반환
+
+        except redis.exceptions.ConnectionError as e:
+            print(f"❌ Redis 연결 실패 (시도 {i + 1}/{max_retries}): {e}")
+            if i == max_retries - 1:  # 마지막 시도라면 None 반환
+                return None, None
+            time.sleep(delay)  # 2초 대기 후 재시도
+
+
+# (★수정) try...except 블록 대신, 새 함수를 호출
+redis_client, redis_client_bytes = connect_to_redis()
+
+if not redis_client:
+    print("❌ Redis에 최종적으로 연결하지 못했습니다. 서버를 종료합니다.")
+    # (실제로는 여기서 예외를 발생시키거나 exit()를 호출하는 것이 좋습니다)
 
 # Redis Key에 사용할 접두사 (Key들이 섞이지 않게 함)
 JOB_KEY_PREFIX = "job:med:"
@@ -128,34 +146,40 @@ def publish_message(job_id: str, message_data: Dict[str, Any]):
 
 async def subscribe_to_messages(job_id: str):
     """
-    (SSE 엔드포인트가 사용)
-    지정된 job_id 채널을 비동기(async)로 구독(Subscribe)하고 메시지를 반환합니다.
+    (★수정) 비동기 Redis 클라이언트를 사용하여 메시지를 구독합니다.
     """
-    if not redis_client_bytes:
-        raise RuntimeError("Redis(bytes) 연결이 설정되지 않았습니다.")
+    # ★ 비동기 Redis 클라이언트 생성
+    async_redis = aioredis.from_url(
+        "redis://redis:6379",
+        encoding="utf-8",
+        decode_responses=True
+    )
 
     channel = f"job_events:{job_id}"
-    pubsub = redis_client_bytes.pubsub()
-    await pubsub.subscribe(channel)
-
-    print(f"[PubSub] 🎧 (Job {job_id}) 채널 구독 시작...")
+    pubsub = async_redis.pubsub()
 
     try:
+        await pubsub.subscribe(channel)
+        print(f"[PubSub] 🎧 (Job {job_id}) 채널 구독 시작...")
+
         while True:
-            # 비동기로 메시지 대기
-            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30)
+            # ★ 비동기로 메시지 대기
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30.0)
 
             if message and message['type'] == 'message':
-                # 메시지(bytes)를 딕셔너리로 파싱
+                # 메시지를 딕셔너리로 파싱
                 message_data = json.loads(message['data'])
                 print(f"[PubSub] ⬅️  (Job {job_id}) 메시지 수신: {message_data}")
-                yield message_data  # (SSE 핸들러에게 메시지 전달)
+                yield message_data
 
-            # (만약 30초간 메시지 없으면 timeout -> 루프가 다시 돌며 대기)
-            # (실제로는 FastAPI 연결이 끊기면 이 루프도 종료됨)
+            # 짧은 대기 (CPU 사용량 감소)
+            await asyncio.sleep(0.1)
 
     except asyncio.CancelledError:
         print(f"[PubSub] 🔌 (Job {job_id}) 구독 취소됨.")
+    except Exception as e:
+        print(f"[PubSub] 🔴 구독 중 오류: {e}")
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.close()
+        await async_redis.close()
