@@ -2,6 +2,7 @@ from faster_whisper import WhisperModel
 import sys
 import os
 from typing import Optional
+import numpy as np
 
 # --- 1. 모델 설정 (F-STT-01 세부사항) ---
 
@@ -134,3 +135,41 @@ def transcribe_audio_streaming(file_path: str):
             full_transcript_parts.append(segment_text)
             # (★핵심) 감지된 세그먼트를 즉시 yield
             yield segment_text
+
+
+def transcribe_segment_from_bytes(audio_bytes: bytes, initial_prompt: str = None) -> str:
+    """
+    (F-STT-03)
+    VAD로부터 받은 오디오 바이트 세그먼트를 STT합니다.
+    """
+    global _model
+    # (Lazy Loading)
+    if not _model:
+        print("[STT Service] 🔴 (Stream) 모델이 로드되지 않아, 지금 로드합니다...")
+        load_stt_model()
+        if not _model:
+            raise RuntimeError("STT 모델 로드에 실패했습니다.")
+
+    print(f"[STT Service] 🔵 {len(audio_bytes)} 바이트 세그먼트 STT 작업 시작...")
+
+    try:
+        # 1. 바이트를 16-bit 정수(int16) Numpy 배열로 변환
+        audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
+        # 2. int16을 32-bit 부동소수점(float32)으로 정규화
+        audio_float32 = audio_np.astype(np.float32) / 32768.0
+
+        # 3. (★핵심) initial_prompt로 문맥 전달
+        segments, info = _model.transcribe(
+            audio_float32,
+            language="ko",
+            vad_filter=False,  # VAD는 이미 우리가 했음
+            initial_prompt=initial_prompt
+        )
+        segment_text = " ".join([seg.text.strip() for seg in segments])
+
+        print(f"[STT Service] 🟢 세그먼트 STT 완료: {segment_text}")
+        return segment_text
+
+    except Exception as e:
+        print(f"[STT Service] 🔴 세그먼트 STT 오류: {e}", file=sys.stderr)
+        raise e

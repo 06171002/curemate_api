@@ -35,7 +35,7 @@ class StreamingJob:
             # (나중에 여기에 STT 로직 추가)
             # (테스트를 위해 임시로 '감지됨' 텍스트 추가)
             self.full_transcript.append(f"[감지된 세그먼트: {len(segment_bytes)} bytes]")
-            return True
+            return segment_bytes
         return False
 
     def get_full_transcript(self) -> str:

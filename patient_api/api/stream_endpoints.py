@@ -60,27 +60,72 @@ async def conversation_stream(websocket: WebSocket, job_id: str):
     })
 
     try:
-        # --- (★나중에 VAD/STT 로직으로 교체될 부분) ---
+        # --- (★수정: 실제 VAD/STT 로직) ---
         while True:
             audio_chunk = await websocket.receive_bytes()
 
-            # (F-VAD-01) VAD 프로세서에 청크 전달
-            segment_detected = job.process_audio_chunk(audio_chunk)
+            # (F-VAD-01) VAD가 segment_bytes를 반환 (또는 None)
+            segment_bytes = job.process_audio_chunk(audio_chunk)
 
-            if segment_detected:
-                # (테스트용) VAD가 세그먼트를 감지했다고 클라이언트에 알림
-                await websocket.send_json({
-                    "type": "vad_segment_detected",
-                    "message": "음성 세그먼트가 감지되었습니다. (STT 처리 시작)"
-                })
-                # (★실제 구현 시) 여기서 stt_service.transcribe_segment_... 호출
+            if segment_bytes:
+                # (F-STT-03) VAD가 감지한 세그먼트로 STT 호출
+                try:
+                    segment_text = stt_service.transcribe_segment_from_bytes(
+                        segment_bytes,
+                        initial_prompt=job.current_prompt_context
+                    )
+
+                    if segment_text:  # STT 결과가 있는 경우
+                        # Job의 문맥과 전체 대화록 업데이트
+                        job.current_prompt_context += " " + segment_text
+                        job.full_transcript.append(segment_text)
+
+                        # (★실시간 전송) 클라이언트에게 "실제 텍스트" 전송
+                        await websocket.send_json({
+                            "type": "transcript_segment",
+                            "text": segment_text
+                        })
+                except Exception as e:
+                    print(f"[WebSocket] 🔴 STT 처리 중 오류: {e}")
+                    await websocket.send_json({
+                        "type": "error", "message": f"STT 오류: {e}"
+                    })
 
     except WebSocketDisconnect:
         print(f"[WebSocket] 🟡 클라이언트 연결 끊김 (Job: {job_id})")
-        # (F-SUM-04) (★나중에 요약 및 DB 저장 로직 추가)
-        # final_transcript = job.get_full_transcript()
-        # summary = await ollama_service.get_summary(final_transcript)
-        # job_repository.update_job(job.job_id, {"status": "completed", ...})
+        # (F-SUM-04) (★수정) 요약 및 DB 저장 로직 활성화
+        final_transcript = job.get_full_transcript()
+
+        if not final_transcript:
+            print(f"[WebSocket] (Job {job_id}) 대화 내용이 없어 요약/저장 스킵.")
+        else:
+            try:
+                # 1. (Ollama) 전체 대화록 요약
+                print(f"[WebSocket] (Job {job_id}) 요약 시작...")
+                summary_dict = await ollama_service.get_summary(final_transcript)
+
+                # 2. (Redis DB) Redis에 최종본 저장
+                updates = {
+                    "status": "completed",
+                    "original_transcript": final_transcript,
+                    "structured_summary": summary_dict
+                }
+                job_repository.update_job(job.job_id, updates)
+                print(f"[WebSocket] (Job {job_id}) Redis에 최종 결과 저장 완료.")
+
+                # 3. (WebSocket) 클라이언트에게 최종 요약본 전송
+                await websocket.send_json({
+                    "type": "final_summary",
+                    "summary": summary_dict
+                })
+            except Exception as e:
+                print(f"[WebSocket] 🔴 요약/저장 중 오류 발생: {e}")
+                # (오류가 나도 Redis에는 'transcribed' 상태로 저장)
+                job_repository.update_job(job.job_id, {
+                    "status": "transcribed",  # (요약은 실패했지만 STT는 성공)
+                    "original_transcript": final_transcript,
+                    "error_message": f"요약 실패: {e}"
+                })
 
     except Exception as e:
         print(f"[WebSocket] 🔴 예기치 않은 오류: {e}")
