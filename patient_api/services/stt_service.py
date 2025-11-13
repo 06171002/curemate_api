@@ -100,3 +100,40 @@ def transcribe_audio(file_path: str) -> str:
         # 예외를 다시 발생시켜 worker.py에서 이 예외를 잡고,
         # job_manager를 통해 상태를 'failed'로 업데이트하도록 합니다.
         raise e
+
+
+# (★신규) SSE를 위한 스트리밍(제너레이터) 버전
+def transcribe_audio_streaming(file_path: str):
+    """
+    (SSE용)
+    오디오 파일을 STT 처리하고, VAD가 감지한 '세그먼트'를
+    즉시 'yield' (반환)합니다.
+    """
+    global _model
+    if not _model:
+        print("[STT Service] 🔴 모델이 로드되지 않았습니다. 지금 로드를 시도합니다...")
+        load_stt_model()
+        if not _model:
+            raise RuntimeError("STT 모델 로드에 실패했습니다. 워커 로그를 확인하세요.")
+
+    print(f"[STT Service] 🔵 (Streaming) STT 작업을 시작합니다: {file_path}")
+
+    # (★중요) _model.transcribe 자체가 제너레이터입니다.
+    segments, info = _model.transcribe(
+        file_path,
+        language="ko",
+        vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 500}
+    )
+
+    full_transcript_parts = []
+    for segment in segments:
+        segment_text = segment.text.strip()
+        if segment_text:
+            print(f"[STT Service] (Streaming) 🎤 세그먼트 감지: {segment_text}")
+            full_transcript_parts.append(segment_text)
+            # (★핵심) 감지된 세그먼트를 즉시 yield
+            yield segment_text
+
+            # (★핵심) 모든 STT가 끝나면, 전체 텍스트를 반환
+    yield " ".join(full_transcript_parts)

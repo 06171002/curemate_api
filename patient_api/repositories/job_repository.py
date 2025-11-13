@@ -1,5 +1,6 @@
 import redis
 import json
+import asyncio
 from typing import Dict, Any, Optional
 
 # --- 1. Redis 연결 설정 ---
@@ -9,12 +10,14 @@ from typing import Dict, Any, Optional
 try:
     # Docker로 띄운 Redis는 기본적으로 localhost:6379 입니다.
     redis_client = redis.Redis(host='redis', port=6379, decode_responses=True)
+    redis_client_bytes = redis.Redis(host='localhost', port=6379, decode_responses=False)
     redis_client.ping()
     print("✅ Redis에 성공적으로 연결되었습니다.")
 except redis.exceptions.ConnectionError as e:
     print(f"❌ Redis 연결 실패: {e}")
     print("Docker에서 Redis 컨테이너가 실행 중인지 확인하세요. (docker ps)")
     redis_client = None  # 연결 실패 시 None으로 설정
+    redis_client_bytes = None
 
 # Redis Key에 사용할 접두사 (Key들이 섞이지 않게 함)
 JOB_KEY_PREFIX = "job:med:"
@@ -105,3 +108,54 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> bool:
     except Exception as e:
         print(f"[JobManager] 작업 업데이트 실패 (Job {job_id}): {e}")
         return False
+
+
+# --- 3. (신규) Pub/Sub 함수 ---
+
+def publish_message(job_id: str, message_data: Dict[str, Any]):
+    """
+    (Celery 워커가 사용)
+    지정된 job_id 채널로 메시지를 발행(Publish)합니다.
+    """
+    if not redis_client:
+        return
+
+    channel = f"job_events:{job_id}"
+    message = json.dumps(message_data)
+    redis_client.publish(channel, message)
+    print(f"[PubSub] ➡️  (Job {job_id}) 채널로 메시지 발행: {message[:50]}...")
+
+
+async def subscribe_to_messages(job_id: str):
+    """
+    (SSE 엔드포인트가 사용)
+    지정된 job_id 채널을 비동기(async)로 구독(Subscribe)하고 메시지를 반환합니다.
+    """
+    if not redis_client_bytes:
+        raise RuntimeError("Redis(bytes) 연결이 설정되지 않았습니다.")
+
+    channel = f"job_events:{job_id}"
+    pubsub = redis_client_bytes.pubsub()
+    await pubsub.subscribe(channel)
+
+    print(f"[PubSub] 🎧 (Job {job_id}) 채널 구독 시작...")
+
+    try:
+        while True:
+            # 비동기로 메시지 대기
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30)
+
+            if message and message['type'] == 'message':
+                # 메시지(bytes)를 딕셔너리로 파싱
+                message_data = json.loads(message['data'])
+                print(f"[PubSub] ⬅️  (Job {job_id}) 메시지 수신: {message_data}")
+                yield message_data  # (SSE 핸들러에게 메시지 전달)
+
+            # (만약 30초간 메시지 없으면 timeout -> 루프가 다시 돌며 대기)
+            # (실제로는 FastAPI 연결이 끊기면 이 루프도 종료됨)
+
+    except asyncio.CancelledError:
+        print(f"[PubSub] 🔌 (Job {job_id}) 구독 취소됨.")
+    finally:
+        await pubsub.unsubscribe(channel)
+        await pubsub.close()

@@ -1,11 +1,14 @@
 import os
 import uuid
+import json
 from fastapi import (
     APIRouter,
     UploadFile,
     File,
-    HTTPException
+    HTTPException,
+    Request
 )
+from sse_starlette.sse import EventSourceResponse
 # (★중요) refactoring된 경로로 임포트
 from patient_api.repositories import job_repository
 from patient_api.services import tasks
@@ -77,3 +80,47 @@ def get_conversation_result(job_id: str):
         return {"job_id": job_id, "status": status, "error_message": job.get("error_message")}
     else:
         return {"job_id": job_id, "status": status}
+
+
+# (★신규) F-API-02 (SSE 방식)
+@router.get("/api/v1/conversation/stream-events/{job_id}")
+async def stream_events(job_id: str, request: Request):
+    """
+    (SSE) job_id에 해당하는 작업의 STT 세그먼트 및 최종 요약을
+    실시간으로 스트리밍합니다.
+    """
+
+    async def event_generator():
+        """
+        Redis Pub/Sub을 구독하고 메시지를 SSE 형식으로 'yield'합니다.
+        """
+        try:
+            # (job_repository의 비동기 구독 함수 호출)
+            async for message_data in job_repository.subscribe_to_messages(job_id):
+
+                # 클라이언트 연결이 끊겼는지 확인
+                if await request.is_disconnected():
+                    print("[SSE] 클라이언트 연결 끊김 (스트림 중단)")
+                    break
+
+                event_type = message_data.get("type", "message")
+                data_json = json.dumps(message_data)
+
+                yield {
+                    "event": event_type,  # (예: "transcript_segment", "final_summary")
+                    "data": data_json
+                }
+
+                # (★핵심) 최종 요약 메시지를 받으면 스트림 종료
+                if event_type == "final_summary":
+                    break
+
+        except Exception as e:
+            print(f"[SSE] 🔴 스트리밍 중 오류: {e}")
+            yield {
+                "event": "error",
+                "data": json.dumps({"message": str(e)})
+            }
+
+    # FastAPI에게 이 제너레이터를 SSE 응답으로 사용하라고 알림
+    return EventSourceResponse(event_generator())
