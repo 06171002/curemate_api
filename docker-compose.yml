@@ -1,0 +1,30 @@
+# docker-compose.yml
+
+version: '3.8'
+
+services:
+  # 1. Redis 서비스 (Celery 브로커 + Job DB)
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379" # (Windows에서 Redis GUI로 접속해볼 수 있도록 포트 개방)
+
+  # 2. FastAPI (Uvicorn) API 서비스
+  api:
+    build: .  # (현재 폴더의 Dockerfile을 사용)
+    ports:
+      - "8000:8000" # (Windows의 8000번 포트와 컨테이너 8000번 연결)
+    command: uvicorn patient_api.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app # (코드를 수정하면 자동으로 컨테이너에 반영)
+    depends_on:
+      - redis # (Redis가 켜진 후에 API 서버가 켜지도록 설정)
+
+  # 3. Celery 워커 서비스 (★ Windows 오류 해결!)
+  worker:
+    build: .  # (API와 동일한 Dockerfile 사용)
+    command: python -m celery -A patient_api.core.celery_config.celery_app worker --loglevel=info -c 4
+    volumes:
+      - .:/app
+    depends_on:
+      - redis

@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 # 이게 없으면 Redis가 문자열 대신 bytes(예: b'hello')를 반환합니다.
 try:
     # Docker로 띄운 Redis는 기본적으로 localhost:6379 입니다.
-    redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    redis_client = redis.Redis(host='redis', port=6379, decode_responses=True)
     redis_client.ping()
     print("✅ Redis에 성공적으로 연결되었습니다.")
 except redis.exceptions.ConnectionError as e:

@@ -59,11 +59,18 @@ def transcribe_audio(file_path: str) -> str:
     (F-STT-01: VAD, 한국어 설정)
     """
     global _model
+    # (★수정) Lazy Loading: 모델이 없으면 지금 로드!
     if not _model:
-        # 서버 시작 시 로드에 실패했으면, 여기서 에러를 발생시켜야
-        # worker가 'failed' 상태로 처리할 수 있습니다.
-        print("[STT Service] 🔴 transcribe_audio: 모델이 로드되지 않았습니다!", file=sys.stderr)
-        raise RuntimeError("STT 모델이 로드되지 않았습니다. 서버 시작 로그를 확인하세요.")
+        # FastAPI 서버는 lifespan에서 이미 로드했겠지만,
+        # Celery 워커는 여기서 처음 로드하게 됩니다.
+        print("[STT Service] 🔴 모델이 로드되지 않았습니다. 지금 로드를 시도합니다...")
+        load_stt_model()  #
+
+        # 다시 한번 확인
+        if not _model:
+            # 로드에 또 실패했으면 에러 발생
+            print("[STT Service] 🔴 STT 모델 로드에 실패했습니다. 워커 로그를 확인하세요.", file=sys.stderr)
+            raise RuntimeError("STT 모델 로드에 실패했습니다. 워커 로그를 확인하세요.")
 
     print(f"[STT Service] 🔵 STT 작업을 시작합니다: {file_path}")
 
