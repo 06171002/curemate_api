@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 try:
     # Docker로 띄운 Redis는 기본적으로 localhost:6379 입니다.
     redis_client = redis.Redis(host='redis', port=6379, decode_responses=True)
-    redis_client_bytes = redis.Redis(host='localhost', port=6379, decode_responses=False)
+    redis_client_bytes = redis.Redis(host='redis', port=6379, decode_responses=False)
     redis_client.ping()
     print("✅ Redis에 성공적으로 연결되었습니다.")
 except redis.exceptions.ConnectionError as e:
