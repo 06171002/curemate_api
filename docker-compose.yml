@@ -9,6 +9,11 @@ services:
     ports:
       - "6379:6379" # (Windows에서 Redis GUI로 접속해볼 수 있도록 포트 개방)
 
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+
   # 2. FastAPI (Uvicorn) API 서비스
   api:
     build: .  # (현재 폴더의 Dockerfile을 사용)
@@ -19,6 +24,7 @@ services:
       - .:/app # (코드를 수정하면 자동으로 컨테이너에 반영)
     depends_on:
       - redis # (Redis가 켜진 후에 API 서버가 켜지도록 설정)
+      - ollama
 
   # 3. Celery 워커 서비스 (★ Windows 오류 해결!)
   worker:
@@ -28,3 +34,4 @@ services:
       - .:/app
     depends_on:
       - redis
+      - ollama

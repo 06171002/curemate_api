@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 # --- 1. Ollama 설정 (F-SUM-01 세부사항) ---
 
 # (설정) Ollama API가 실행 중인 주소
-OLLAMA_API_URL = "http://host.docker.internal:11434/api/generate"
+OLLAMA_API_URL = "http://ollama:11434/api/generate"
 
 # (설정) Ollama에서 사용할 모델 이름 (예: "llama3", "gemma:7b")
 OLLAMA_MODEL_NAME = "gemma3"  # 로컬에 'ollama pull llama3'로 받아져 있어야 함
@@ -26,7 +26,7 @@ async def check_ollama_connection():
     try:
         print("[Ollama Service] 🟡 Ollama 서버 연결을 시도합니다...")
         # 간단한 list 요청으로 서버 응답 확인
-        await _client.get("http://host.docker.internal:11434/api/tags")
+        await _client.get("http://ollama:11434/api/tags")
         print(f"[Ollama Service] 🟢 Ollama 서버 연결 성공. (사용 모델: {OLLAMA_MODEL_NAME})")
     except httpx.RequestError as e:
         print(f"[Ollama Service] 🔴 Ollama 서버 연결 실패: {e}", file=sys.stderr)
