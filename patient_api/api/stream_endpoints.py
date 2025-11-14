@@ -4,6 +4,7 @@ from fastapi import (
     WebSocketDisconnect,
     HTTPException
 )
+import asyncio
 # (★중요) refactoring된 경로로 임포트
 from patient_api.domain.streaming_job import StreamingJob
 from patient_api.repositories import job_repository
@@ -70,9 +71,10 @@ async def conversation_stream(websocket: WebSocket, job_id: str):
             if segment_bytes:
                 # (F-STT-03) VAD가 감지한 세그먼트로 STT 호출
                 try:
-                    segment_text = stt_service.transcribe_segment_from_bytes(
+                    segment_text = await asyncio.to_thread(
+                        stt_service.transcribe_segment_from_bytes,
                         segment_bytes,
-                        initial_prompt=job.current_prompt_context
+                        job.current_prompt_context
                     )
 
                     if segment_text:  # STT 결과가 있는 경우

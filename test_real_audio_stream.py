@@ -67,8 +67,8 @@ def on_open(ws):
                 # (중요) 실제 30ms 간격으로 전송 (실시간 시뮬레이션)
                 time.sleep(FRAME_DURATION_MS / 1000.0)
 
-            print(f"[Streamer] 5. 오디오 전송 완료. 2초 후 연결 종료.")
-            time.sleep(2)
+            print(f"[Streamer] 5. 오디오 전송 완료. 30초 후 연결 종료.")
+            time.sleep(150)
             ws.close()
 
         except FileNotFoundError:

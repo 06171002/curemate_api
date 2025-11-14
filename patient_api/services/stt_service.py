@@ -4,6 +4,7 @@ import os
 from typing import Optional
 import numpy as np
 
+
 # --- 1. 모델 설정 (F-STT-01 세부사항) ---
 
 # (설정) 사용할 모델 크기. (e.g., "tiny", "base", "medium", "large-v3")

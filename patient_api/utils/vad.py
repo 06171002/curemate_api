@@ -24,7 +24,7 @@ class VADProcessor:
         self.speech_buffer = deque()
         self.in_speech = False
         self.silence_frames = 0
-        self.max_silence_frames = 20  # 약 600ms (30ms * 20) 침묵 시 세그먼트 종료
+        self.max_silence_frames = 10  # 약 600ms (30ms * 20) 침묵 시 세그먼트 종료
 
     def process_chunk(self, audio_chunk: bytes):
         """
