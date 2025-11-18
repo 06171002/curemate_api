@@ -4,7 +4,7 @@ import os
 import sys
 import asyncio  # <--- 1. asyncio를 임포트합니다.
 from patient_api.repositories import job_repository
-from patient_api.services import ollama_service, stt_service
+from patient_api.services import ollama_service, stt_service, lm_service
 from patient_api.core.celery_config import celery_app
 
 # 2. (이름 변경) 기존 async 함수를 내부용(private) 함수로 변경합니다. (예: 맨 앞에 _ 추가)
@@ -45,7 +45,8 @@ async def _run_pipeline_async(job_id: str, audio_file_path: str):
 
         # --- 4. 요약 실행 ---
         print(f"[Worker] (Job {job_id}) Ollama 요약 작업을 시작합니다...")
-        summary_dict = await ollama_service.get_summary(full_transcript)
+        # summary_dict = await ollama_service.get_summary(full_transcript)
+        summary_dict = await lm_service.get_summary(full_transcript)
 
         # (★핵심) 요약 결과를 Pub/Sub으로 발행
         summary_message = {

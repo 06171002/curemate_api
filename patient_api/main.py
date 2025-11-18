@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 # --- 1. 우리가 만든 서비스 모듈 임포트 ---
 # (Lifespan에서 사용하기 위해 필요)
-from patient_api.services import ollama_service, stt_service 
+from patient_api.services import ollama_service, stt_service , lm_service
 # (라우터 임포트)
 from patient_api.api import batch_endpoints, stream_endpoints
 # (★수정) core.config 파일에서 설정값 임포트
@@ -26,8 +26,9 @@ async def lifespan(app: FastAPI):
     # 1. STT 모델 로드
     stt_service.load_stt_model()
 
-    # 2. Ollama 서버 연결 확인
-    await ollama_service.check_llm_connection()
+    # 2. 요약 서버 연결 확인
+    # await ollama_service.check_llm_connection()
+    await lm_service.check_llm_connection()
 
     yield
     # --- 서버 종료 시 실행될 코드 ---
