@@ -19,15 +19,38 @@
 
 ### 2. 프로젝트 클론
 
-```bash
-git clone [https://github.com/fourberry/curemate_stt.git](https://github.com/fourberry/curemate_stt.git)
-cd curemate_stt
-```
-
 ### 3. 실행
 
 1.  **[터미널 1]** 로컬 PC(Windows)에서 `Ollama` 서버를 **0.0.0.0 호스트**로 실행 (`$env:OLLAMA_HOST="0.0.0.0"`, `ollama serve`)하고 방화벽을 허용합니다.
 2.  **[터미널 2]** `docker-compose up -d --build`를 실행합니다.
+
+
+
+
+## 💾 파일 후처리 (SSE) 아키텍처 흐름
+
+`POST /api/v1/conversation/request` (파일 업로드)와 `GET /api/v1/conversation/stream-events/{job_id}` (SSE 스트림) 요청 시의 상세 흐름입니다.
+
+| 💻 클라이언트 (App) | 🖥️ API 서버 (FastAPI / `api` 컨테이너) | 🏭 워커 (Celery / `worker` 컨테이너) |
+| :--- | :--- | :--- |
+| **(1단계: 작업 요청)** | | |
+| 1. `POST /.../request` (파일 첨부) ➡️ | 2. `create_conversation_request()` 호출. <br/> `job_id` 생성 및 파일 저장 (`temp_audio/`) <br/> `job_repository.create_job()` (Redis "pending" 저장) <br/> `tasks.run_stt_and_summary_pipeline.delay(...)` (Celery에 작업 등록) | |
+| 3. `{"job_id": ...}` 응답 수신. ➡️ <br/> 4. `GET /.../stream-events/{job_id}` (SSE) 연결 | 5. `stream_events()` 핸들러 시작. <br/> `event_generator()` 시작. <br/> `job_repository.subscribe_to_messages()` (Redis Pub/Sub 구독) | |
+| **(2단계: STT/요약 (백그라운드))** | | |
+| | | 6. **`run_stt_and_summary_pipeline()`** 실행. <br/> 7. `asyncio.run(_run_pipeline_async(...))` 호출. |
+| | | 8. `_run_pipeline_async()` 시작. <br/> `job_repository.update_job("processing")` (Redis DB 업데이트) <br/> 9. `for segment in stt_service.transcribe_audio_streaming(...)` 루프 시작. |
+| | | 10. (`stt_service.py`) `transcribe_audio_streaming()`가 `_model.transcribe()` (VAD 포함)를 호출. <br/> 11. 세그먼트가 감지되면 `yield segment_text`. |
+| 12. `transcript_segment` 이벤트 수신 (STT 결과) ➡️ | 13. (`event_generator`) `subscribe_to_messages`가 Pub/Sub 메시지 수신. <br/> `yield {"event": "transcript_segment", ...}` | 14. (`_run_pipeline_async`) <br/> `job_repository.publish_message(...)` (Redis Pub/Sub 발행) |
+| ... (STT `for` 루프 반복) ... | ... (SSE 메시지 수신 및 `yield` 반복) ... | ... (STT 세그먼트 `yield` 및 Pub/Sub 발행 반복) ... |
+| | | 15. (`_run_pipeline_async`) `for` 루프 종료. <br/> `full_transcript` 조립. <br/> `job_repository.update_job("transcribed", ...)` (Redis DB 업데이트) <br/> 16. `await ollama_service.get_summary(...)` 호출 |
+| | | 17. (`ollama_service.py`) (또는 `llm_service.py`) <br/> `get_summary()`가 `ollama`에 요약 요청 (HTTP) |
+| | | 18. (`_run_pipeline_async`) `summary_dict` 받음. <br/> `job_repository.publish_message(...)` (Redis Pub/Sub 발행) <br/> `job_repository.update_job("completed", ...)`. |
+| 19. `final_summary` 이벤트 수신 ➡️ | 20. (`event_generator`) `subscribe_to_messages`가 Pub/Sub 메시지 수신. <br/> `yield {"event": "final_summary", ...}`. <br/> `break;` (SSE 연결 종료) | |
+
+
+
+
+
 
 
 ## 🚀 실시간 스트리밍 (WebSocket) 아키텍처 흐름
