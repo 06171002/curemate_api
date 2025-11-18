@@ -26,7 +26,7 @@
 
 
 
-
+---------------------
 ## 💾 파일 후처리 (SSE) 아키텍처 흐름
 
 `POST /api/v1/conversation/request` (파일 업로드)와 `GET /api/v1/conversation/stream-events/{job_id}` (SSE 스트림) 요청 시의 상세 흐름입니다.
