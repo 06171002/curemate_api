@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     stt_service.load_stt_model()
 
     # 2. Ollama 서버 연결 확인
-    await ollama_service.check_ollama_connection()
+    await ollama_service.check_llm_connection()
 
     yield
     # --- 서버 종료 시 실행될 코드 ---
