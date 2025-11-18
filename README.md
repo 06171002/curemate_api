@@ -1,3 +1,35 @@
+# STT/Summary API
+
+실시간 STT(Speech-to-Text) 및 요약 API 서버입니다.
+
+이 프로젝트는 `FastAPI`, `Celery`, `Redis`, `faster-whisper`를 Docker Compose로 실행하고, `Ollama`는 로컬 호스트(Host) PC에서 실행합니다.
+
+---
+
+## 🚀 실행 방법
+
+### 1. 사전 준비 (총 3가지)
+
+1.  **Docker Desktop**을 설치하고 실행해야 합니다.
+2.  **Ollama**를 **호스트 PC(Windows/Mac)에 직접 설치**해야 합니다.
+3.  Ollama에서 사용할 모델(`gemma3`)을 미리 받아야 합니다.
+    ```bash
+    ollama pull gemma3
+    ```
+
+### 2. 프로젝트 클론
+
+```bash
+git clone [https://github.com/fourberry/curemate_stt.git](https://github.com/fourberry/curemate_stt.git)
+cd curemate_stt
+```
+
+### 3. 실행
+
+1.  **[터미널 1]** 로컬 PC(Windows)에서 `Ollama` 서버를 **0.0.0.0 호스트**로 실행 (`$env:OLLAMA_HOST="0.0.0.0"`, `ollama serve`)하고 방화벽을 허용합니다.
+2.  **[터미널 2]** `docker-compose up -d --build`를 실행합니다.
+
+
 ## 🚀 실시간 스트리밍 (WebSocket) 아키텍처 흐름
 
 `test_real_audio_stream.py` 실행 시, 클라이언트-서버-서비스 간의 상세한 상호작용 흐름입니다.
