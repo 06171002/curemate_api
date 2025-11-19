@@ -1,5 +1,4 @@
 # patient_api/api/stream_endpoints.py (개선 버전)
-import sys
 
 from fastapi import (
     APIRouter,
@@ -7,13 +6,10 @@ from fastapi import (
     WebSocketDisconnect,
     HTTPException
 )
-import asyncio
-import traceback
+
 from patient_api.domain.streaming_job import StreamingJob
 from patient_api.services.pipeline import StreamPipeline
 from patient_api.services.storage import job_manager, JobType, JobStatus
-from patient_api.services.llm import lm_service
-from patient_api.services.stt import whisper_service
 from patient_api.core.config import active_jobs
 
 router = APIRouter()

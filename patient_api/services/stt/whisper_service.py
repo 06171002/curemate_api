@@ -1,6 +1,5 @@
 from faster_whisper import WhisperModel
 import sys
-import os
 from typing import Optional
 import numpy as np
 

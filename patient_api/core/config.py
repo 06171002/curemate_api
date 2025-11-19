@@ -1,7 +1,7 @@
 # patient_api/core/config.py (하이브리드 버전)
 
 from pydantic_settings import BaseSettings
-from typing import Literal
+from typing import Dict, Literal
 from functools import lru_cache
 
 
@@ -93,3 +93,13 @@ class Constants:
 
 
 constants = Constants()
+
+
+# ==================== 인메모리 상태 관리 ====================
+# (StreamingJob 관리용)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from patient_api.domain.streaming_job import StreamingJob
+
+active_jobs: Dict[str, "StreamingJob"] = {}

@@ -3,8 +3,8 @@
 from enum import Enum
 from typing import Dict, Any, Optional
 import sys
-from patient_api.services.storage.database_service import db_service
-from patient_api.repositories import job_repository
+from .database_service import db_service
+from . import cache_service
 
 
 class JobStatus(Enum):
@@ -31,7 +31,7 @@ class JobManager:
 
     def __init__(self):
         self.db = db_service
-        self.cache = job_repository
+        self.cache = cache_service
         print("[JobManager] 🟢 작업 관리자 초기화 완료")
 
     # ==================== 작업 생성 ====================

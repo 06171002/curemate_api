@@ -13,7 +13,7 @@ from fastapi import (
 from sse_starlette.sse import EventSourceResponse
 from patient_api.services.storage import job_manager, JobType, JobStatus
 from patient_api.services import tasks
-from patient_api.core.config import TEMP_AUDIO_DIR
+from patient_api.core.config import settings
 
 
 router = APIRouter()
@@ -32,7 +32,7 @@ async def create_conversation_request(
     # 1. 파일 저장
     try:
         file_ext = file.filename.split(".")[-1]
-        temp_file_path = os.path.join(TEMP_AUDIO_DIR, f"{job_id}.{file_ext}")
+        temp_file_path = os.path.join(settings.TEMP_AUDIO_DIR, f"{job_id}.{file_ext}")
         contents = await file.read()
         with open(temp_file_path, "wb") as f:
             f.write(contents)
