@@ -1,7 +1,7 @@
 import uuid
 from typing import List, Dict
 from patient_api.services.stt.vad_processor import VADProcessor  #
-
+from patient_api.core.config import constants
 
 class StreamingJob:
     """
@@ -14,7 +14,10 @@ class StreamingJob:
 
         # (★핵심) 각 Job은 고유의 VAD 인스턴스를 가집니다.
         # (클라이언트가 16kHz, 16-bit, 30ms 청크를 보낸다고 가정)
-        self.vad_processor = VADProcessor(sample_rate=16000, frame_duration_ms=30)
+        self.vad_processor = VADProcessor(
+            sample_rate=constants.VAD_SAMPLE_RATE,
+            frame_duration_ms=constants.VAD_FRAME_DURATION_MS
+        )
 
         # (★핵심) 이 Job만의 대화록과 문맥
         self.full_transcript: List[str] = []

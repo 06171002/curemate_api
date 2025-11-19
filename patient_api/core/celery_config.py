@@ -1,8 +1,10 @@
 from celery import Celery
+from patient_api.core.config import settings
+from patient_api.core.config import constants
 
 # 1. 브로커 URL 설정 (job_manager.py와 동일한 Redis 서버)
 # 0번 DB를 Celery가 메시지 큐로 사용합니다.
-BROKER_URL = 'redis://redis:6379/0'
+BROKER_URL = settings.REDIS_URL
 
 # 2. Celery 앱 생성
 # 'worker'는 Celery가 작업(@celery_app.task)을 스캔할 파일 이름입니다.
@@ -19,4 +21,4 @@ celery_app = Celery(
 # 이것이 훨씬 더 유연하고 강력합니다.
 
 # (선택) 시간대 설정
-celery_app.conf.timezone = 'Asia/Seoul'
+celery_app.conf.timezone = constants.CELERY_TIMEZONE

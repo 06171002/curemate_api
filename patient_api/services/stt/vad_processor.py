@@ -1,5 +1,5 @@
 
-
+from patient_api.core.config import constants
 import webrtcvad
 from collections import deque
 
@@ -10,7 +10,10 @@ class VADProcessor:
     음성이 끝나는 시점에 전체 오디오 세그먼트를 반환합니다.
     """
 
-    def __init__(self, sample_rate=16000, frame_duration_ms=30, vad_aggressiveness=3):
+    def __init__(self,
+                 sample_rate=constants.VAD_SAMPLE_RATE,
+                 frame_duration_ms=constants.VAD_FRAME_DURATION_MS,
+                 vad_aggressiveness=constants.VAD_AGGRESSIVENESS):
         if sample_rate not in [8000, 16000, 32000, 48000]:
             raise ValueError("VAD 지원 sample_rate는 8k, 16k, 32k, 48k 중 하나여야 합니다.")
 

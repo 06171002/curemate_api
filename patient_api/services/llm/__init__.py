@@ -1,10 +1,10 @@
 from .base_llm_service import BaseLLMService, LLMServiceError, LLMConnectionError
 from .ollama_service import ollama_service
 from .lm_service import lm_service
+from patient_api.core.config import settings
 
-# ✅ 환경 변수로 사용할 LLM 선택
-import os
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "lmstudio")  # "ollama" or "lmstudio"
+
+LLM_PROVIDER = settings.LLM_PROVIDER
 
 if LLM_PROVIDER == "ollama":
     llm_service = ollama_service

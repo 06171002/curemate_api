@@ -10,7 +10,7 @@ from patient_api.services.stt import whisper_service
 # (라우터 임포트)
 from patient_api.api import batch_endpoints, stream_endpoints
 # (★수정) core.config 파일에서 설정값 임포트
-from patient_api.core.config import TEMP_AUDIO_DIR
+from patient_api.core.config import settings
 
 # --- 3. Lifespan 이벤트 핸들러 ---
 @asynccontextmanager
@@ -21,8 +21,8 @@ async def lifespan(app: FastAPI):
     print("INFO:     서버가 시작됩니다.")
 
     # 임시 오디오 디렉터리 생성
-    os.makedirs(TEMP_AUDIO_DIR, exist_ok=True)
-    print(f"INFO:     임시 오디오 디렉터리 확인: {TEMP_AUDIO_DIR}")
+    os.makedirs(settings.TEMP_AUDIO_DIR, exist_ok=True)
+    print(f"INFO:     임시 오디오 디렉터리 확인: {settings.TEMP_AUDIO_DIR}")
 
     # 1. STT 모델 로드
     whisper_service.load_stt_model()

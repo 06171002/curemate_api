@@ -2,19 +2,19 @@ from faster_whisper import WhisperModel
 import sys
 from typing import Optional
 import numpy as np
-
+from patient_api.core.config import settings
 
 # --- 1. 모델 설정 (F-STT-01 세부사항) ---
 
 # (설정) 사용할 모델 크기. (e.g., "tiny", "base", "medium", "large-v3")
 # "medium"이 한국어에 적절한 속도와 품질을 제공합니다.
 # "large-v3"는 가장 정확하지만, GPU가 없으면 매우 느립니다.
-STT_MODEL_SIZE = "medium"
+STT_MODEL_SIZE = settings.STT_MODEL_SIZE
 
 # (설정) GPU 사용 여부. "cuda" (NVIDIA GPU), "cpu"
 # Apple Silicon (M1/M2/M3) 사용 시: "mps" (아직 faster-whisper에서 공식 지원X, 'auto' 권장)
 # 'auto'로 두면 사용 가능한 장치를 자동 감지합니다.
-DEVICE_TYPE = "auto"
+DEVICE_TYPE = settings.STT_DEVICE_TYPE
 COMPUTE_TYPE = "default"  # GPU의 경우 "float16", CPU의 경우 "int8" 권장
 
 # --- 2. 모델 미리 로드 (F-STT-01 세부사항) ---

@@ -7,14 +7,16 @@ from openai import AsyncOpenAI
 import httpx
 import re
 from .base_llm_service import BaseLLMService, LLMConnectionError, LLMResponseError
+from patient_api.core.config import settings
 
 # --- 1. LM Studio 설정 ---
-LMSTUDIO_BASE_URL = "http://host.docker.internal:1234/v1"
-LMSTUDIO_HEALTH_URL = "http://host.docker.internal:1234"
+LMSTUDIO_BASE_URL = settings.LMSTUDIO_BASE_URL
+LMSTUDIO_HEALTH_URL = settings.LMSTUDIO_BASE_URL.replace("/v1", "")
 
 _client = AsyncOpenAI(
     base_url=LMSTUDIO_BASE_URL,
-    api_key="lm-studio"
+    api_key="lm-studio",
+    timeout=settings.LMSTUDIO_TIMEOUT
 )
 
 

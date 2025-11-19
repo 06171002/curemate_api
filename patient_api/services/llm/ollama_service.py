@@ -2,19 +2,20 @@ import httpx
 import json
 import sys
 from typing import Dict, Any, Optional
+from patient_api.core.config import settings
 
 from .base_llm_service import BaseLLMService, LLMConnectionError, LLMResponseError
 
 # --- 1. Ollama 설정 (F-SUM-01 세부사항) ---
 
 # (설정) Ollama API가 실행 중인 주소
-OLLAMA_API_URL = "http://host.docker.internal:11434/api/generate"
+OLLAMA_API_URL = f"{settings.OLLAMA_BASE_URL}/api/generate"
 
 # (설정) Ollama에서 사용할 모델 이름 (예: "llama3", "gemma:7b")
-OLLAMA_MODEL_NAME = "gemma3"  # 로컬에 'ollama pull llama3'로 받아져 있어야 함
+OLLAMA_MODEL_NAME = settings.OLLAMA_MODEL_NAME
 
 # API 호출 타임아웃 (초). 요약은 오래 걸릴 수 있으므로 넉넉하게 설정
-API_TIMEOUT = 120.0
+API_TIMEOUT = settings.OLLAMA_TIMEOUT
 
 # httpx 클라이언트는 재사용하는 것이 좋습니다.
 # 비동기(async) 클라이언트를 생성합니다. (워커가 비동기로 호출할 것을 대비)
