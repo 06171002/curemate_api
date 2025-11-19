@@ -6,6 +6,7 @@ from typing import Dict, Any
 from openai import AsyncOpenAI
 import httpx
 import re
+from .base_llm_service import BaseLLMService, LLMConnectionError, LLMResponseError
 
 # --- 1. LM Studio 설정 ---
 LMSTUDIO_BASE_URL = "http://host.docker.internal:1234/v1"
@@ -290,3 +291,34 @@ async def get_summary(transcript: str) -> Dict[str, Any]:
     나중에 get_medical_summary()로 변경 가능
     """
     return await get_simple_summary(transcript)
+
+
+class LMStudioService(BaseLLMService):
+    """LM Studio 서비스 구현"""
+
+    def __init__(self):
+        self.base_url = LMSTUDIO_BASE_URL
+        self.health_url = LMSTUDIO_HEALTH_URL
+        self.client = AsyncOpenAI(base_url=self.base_url, api_key="lm-studio")
+
+    async def check_connection(self) -> bool:
+        try:
+            print("[LM Studio Service] 🟡 서버 연결 확인...")
+            async with httpx.AsyncClient() as client:
+                response = await client.get(self.health_url)
+                response.raise_for_status()
+            print(f"[LM Studio Service] 🟢 연결 성공")
+            return True
+        except httpx.RequestError as e:
+            print(f"[LM Studio Service] 🔴 연결 실패: {e}")
+            raise LLMConnectionError(f"LM Studio 연결 실패: {e}")
+
+    async def get_summary(self, transcript: str) -> Dict[str, Any]:
+        return await get_simple_summary(transcript)
+
+    async def get_medical_summary(self, transcript: str) -> Dict[str, Any]:
+        return await get_medical_summary(transcript)
+
+
+# 전역 인스턴스
+lmstudio_service = LMStudioService()

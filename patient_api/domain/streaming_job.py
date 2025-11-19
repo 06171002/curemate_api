@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Dict
-from patient_api.utils.vad import VADProcessor  #
+from patient_api.services.stt.vad_processor import VADProcessor  #
 
 
 class StreamingJob:
