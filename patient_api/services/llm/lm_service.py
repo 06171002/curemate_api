@@ -293,7 +293,7 @@ async def get_summary(transcript: str) -> Dict[str, Any]:
     return await get_simple_summary(transcript)
 
 
-class LMStudioService(BaseLLMService):
+class LmService(BaseLLMService):
     """LM Studio 서비스 구현"""
 
     def __init__(self):
@@ -321,4 +321,4 @@ class LMStudioService(BaseLLMService):
 
 
 # 전역 인스턴스
-lmstudio_service = LMStudioService()
+lm_service = LmService()
