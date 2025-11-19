@@ -1,97 +1,190 @@
-
+# patient_api/services/tasks.py
 
 import os
 import sys
-import asyncio  # <--- 1. asyncio를 임포트합니다.
+import asyncio
+import traceback
 from patient_api.repositories import job_repository
 from patient_api.services import ollama_service, stt_service, lm_service
+from patient_api.services.database_service import db_service
 from patient_api.core.celery_config import celery_app
 
-# 2. (이름 변경) 기존 async 함수를 내부용(private) 함수로 변경합니다. (예: 맨 앞에 _ 추가)
+
 async def _run_pipeline_async(job_id: str, audio_file_path: str):
     """
-    (F-API-01이 호출하는) 백그라운드 작업의 메인 파이프라인.
-    ... (이 함수 내부의 모든 코드는 100% 동일합니다) ...
+    백그라운드 작업의 메인 파이프라인.
+    STT -> 요약 순서로 처리하며, 각 단계마다 DB와 Pub/Sub 업데이트
     """
-
     print(f"[Worker] 🔵 작업 시작 (Job ID: {job_id}, File: {audio_file_path})")
 
     try:
-        # --- 1. 상태 변경 ---
+        # ========== 1. 상태 변경: PROCESSING ==========
+        db_service.update_stt_job_status(job_id, "PROCESSING")
         job_repository.update_job(job_id, {"status": "processing"})
 
-        # --- 2. (★수정) STT 실행 (제너레이터 사용) ---
-        print(f"[Worker] (Job {job_id}) STT (Streaming) 작업을 시작합니다...")
+        # ========== 2. STT 실행 (스트리밍) ==========
+        print(f"[Worker] (Job {job_id}) STT 작업 시작...")
 
         transcript_segments = []
-        # (★수정) for 루프가 여기서 시작됩니다.
-        for segment in stt_service.transcribe_audio_streaming(audio_file_path):
-            transcript_segments.append(segment)
+        segment_count = 0
 
-            message_data = {
-                "type": "transcript_segment",
-                "text": segment
-            }
-            job_repository.publish_message(job_id, message_data)
+        try:
+            for segment in stt_service.transcribe_audio_streaming(audio_file_path):
+                segment_count += 1
+                transcript_segments.append(segment)
 
-        # (★수정) for 루프가 끝난 후, (들여쓰기 수정)
-        # --- 3. (DB 저장) STT 완료 상태를 DB에 저장 ---
+                # (선택) DB에 세그먼트 저장
+                # db_service.insert_stt_segment(job_id, segment)
+
+                # Pub/Sub으로 실시간 세그먼트 발행
+                message_data = {
+                    "type": "transcript_segment",
+                    "text": segment,
+                    "segment_number": segment_count
+                }
+                job_repository.publish_message(job_id, message_data)
+
+        except Exception as stt_error:
+            error_msg = f"STT 처리 중 오류: {str(stt_error)}"
+            stack_trace = traceback.format_exc()
+
+            print(f"[Worker] 🔴 {error_msg}", file=sys.stderr)
+            print(f"[Worker] 🔴 스택 트레이스:\n{stack_trace}", file=sys.stderr)
+
+            # DB 에러 로그
+            db_service.log_error(job_id, "celery_stt", f"{error_msg}\n\n{stack_trace}")
+
+            # 예외를 다시 발생시켜 외부 except 블록에서 처리
+            raise
+
+        # ========== 3. STT 완료 상태 저장: TRANSCRIBED ==========
         full_transcript = " ".join(transcript_segments)
-        stt_result_data = {
+
+        if not full_transcript:
+            warning_msg = "STT 결과가 비어있습니다 (음성 감지 실패)"
+            print(f"[Worker] ⚠️ (Job {job_id}) {warning_msg}")
+
+            db_service.update_stt_job_status(
+                job_id,
+                "TRANSCRIBED",
+                transcript="",
+                error_message=warning_msg
+            )
+
+            job_repository.update_job(job_id, {
+                "status": "transcribed",
+                "original_transcript": "",
+                "error_message": warning_msg
+            })
+
+            # 요약 건너뛰고 종료
+            return
+
+        db_service.update_stt_job_status(
+            job_id,
+            "TRANSCRIBED",
+            transcript=full_transcript
+        )
+
+        job_repository.update_job(job_id, {
             "status": "transcribed",
-            "original_transcript": full_transcript
-        }
-        job_repository.update_job(job_id, stt_result_data)
+            "original_transcript": full_transcript,
+            "segment_count": segment_count
+        })
 
-        # --- 4. 요약 실행 ---
-        print(f"[Worker] (Job {job_id}) Ollama 요약 작업을 시작합니다...")
-        # summary_dict = await ollama_service.get_summary(full_transcript)
-        summary_dict = await lm_service.get_summary(full_transcript)
+        print(f"[Worker] ✅ (Job {job_id}) STT 완료 (총 {segment_count}개 세그먼트)")
 
-        # (★핵심) 요약 결과를 Pub/Sub으로 발행
+        # ========== 4. 요약 실행 ==========
+        print(f"[Worker] (Job {job_id}) 요약 작업 시작...")
+
+        try:
+            # summary_dict = await ollama_service.get_summary(full_transcript)
+            summary_dict = await lm_service.get_summary(full_transcript)
+
+        except Exception as summary_error:
+            error_msg = f"요약 처리 중 오류: {str(summary_error)}"
+            stack_trace = traceback.format_exc()
+
+            print(f"[Worker] 🔴 {error_msg}", file=sys.stderr)
+            print(f"[Worker] 🔴 스택 트레이스:\n{stack_trace}", file=sys.stderr)
+
+            # DB 에러 로그
+            db_service.log_error(job_id, "celery_summary", f"{error_msg}\n\n{stack_trace}")
+
+            # STT는 성공했으므로 TRANSCRIBED 상태 유지하고 종료
+            # (요약 실패는 치명적이지 않음)
+            return
+
+        # ========== 5. 요약 결과 Pub/Sub 발행 ==========
         summary_message = {
             "type": "final_summary",
-            "summary": summary_dict
+            "summary": summary_dict,
+            "segment_count": segment_count
         }
         job_repository.publish_message(job_id, summary_message)
 
-        # --- 5. (DB 저장) 최종 상태를 DB에 저장 ---
-        final_result_data = {
+        # ========== 6. 최종 상태 저장: COMPLETED ==========
+        db_service.update_stt_job_status(
+            job_id,
+            "COMPLETED",
+            summary=summary_dict
+        )
+
+        job_repository.update_job(job_id, {
             "status": "completed",
             "structured_summary": summary_dict
-        }
-        job_repository.update_job(job_id, final_result_data)
+        })
 
         print(f"[Worker] 🟢 작업 성공 (Job ID: {job_id})")
 
     except Exception as e:
-        # --- 6. (오류 발생 시) 상태를 'failed'로 변경 ---
-        print(f"[Worker] 🔴 작업 실패 (Job ID: {job_id}): {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
+        # ========== 7. 오류 발생 시: FAILED ==========
+        error_msg = f"작업 실패: {str(e)}"
+        stack_trace = traceback.format_exc()
 
-        error_data = {
+        print(f"[Worker] 🔴 (Job ID: {job_id}) {error_msg}", file=sys.stderr)
+        print(f"[Worker] 🔴 스택 트레이스:\n{stack_trace}", file=sys.stderr)
+
+        # DB 에러 로그
+        db_service.log_error(job_id, "celery_task", f"{error_msg}\n\n{stack_trace}")
+
+        # DB 상태 업데이트
+        db_service.update_stt_job_status(
+            job_id,
+            "FAILED",
+            error_message=error_msg
+        )
+
+        # Redis 상태 업데이트
+        job_repository.update_job(job_id, {
             "status": "failed",
-            "error_message": str(e)
-        }
-        job_repository.update_job(job_id, error_data)
+            "error_message": error_msg
+        })
 
     finally:
-        # --- 7. (항상) 임시 파일 삭제 ---
+        # ========== 8. 임시 파일 삭제 ==========
         if os.path.exists(audio_file_path):
             try:
                 os.remove(audio_file_path)
-                print(f"[Worker] (Job {job_id}) 임시 파일 삭제 완료: {audio_file_path}")
+                print(f"[Worker] 🗑️  (Job {job_id}) 임시 파일 삭제: {audio_file_path}")
             except Exception as e:
-                print(f"[Worker] ⚠️ (Job {job_id}) 임시 파일 삭제 실패: {e}", file=sys.stderr)
+                warning_msg = f"임시 파일 삭제 실패: {e}"
+                print(f"[Worker] ⚠️ (Job {job_id}) {warning_msg}", file=sys.stderr)
+                db_service.log_error(job_id, "file_cleanup", warning_msg)
 
 
-# 3. (신규) Celery Task를 '동기식' 함수로 만듭니다.
 @celery_app.task
 def run_stt_and_summary_pipeline(job_id: str, audio_file_path: str):
     """
-    이것은 Celery가 호출할 '동기식' 래퍼(Wrapper) 함수입니다.
-    이 함수의 유일한 역할은 '비동기' 파이프라인을
-    asyncio.run()을 통해 실행하고, 끝날 때까지 기다리는 것입니다.
+    Celery가 호출할 동기식 래퍼 함수.
+    비동기 파이프라인을 asyncio.run()으로 실행합니다.
     """
-    asyncio.run(_run_pipeline_async(job_id, audio_file_path))
+    try:
+        asyncio.run(_run_pipeline_async(job_id, audio_file_path))
+    except Exception as e:
+        # asyncio.run() 자체가 실패한 경우
+        error_msg = f"Asyncio 실행 실패: {str(e)}"
+        print(f"[Celery] 🔴 {error_msg}", file=sys.stderr)
+
+        db_service.log_error(job_id, "celery_asyncio", error_msg)
+        db_service.update_stt_job_status(job_id, "FAILED", error_message=error_msg)
