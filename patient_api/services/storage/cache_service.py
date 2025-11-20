@@ -48,11 +48,17 @@ def connect_to_redis(max_retries=5, delay=2):
                 return None, None
             time.sleep(delay)
 
+# 연결 실패 시 Lazy Loading
+def get_redis_client():
+    global redis_client
+    if redis_client is None:
+        redis_client, _ = connect_to_redis()
+    return redis_client
 
 redis_client, redis_client_bytes = connect_to_redis()
 
 if not redis_client:
-    print("❌ Redis 최종 연결 실패")
+    get_redis_client()
 
 JOB_KEY_PREFIX = "job:med:"
 
