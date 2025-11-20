@@ -11,6 +11,9 @@ from patient_api.domain.streaming_job import StreamingJob
 from patient_api.services.pipeline import StreamPipeline
 from patient_api.services.storage import job_manager, JobType, JobStatus
 from patient_api.core.config import active_jobs
+from patient_api.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -31,7 +34,7 @@ def create_stream_job():
         del active_jobs[job.job_id]
         raise HTTPException(status_code=500, detail="작업 생성 실패")
 
-    print(f"[JobManager] 🟢 새 스트림 작업 생성됨 (Job ID: {job.job_id})")
+    logger.info("새 스트림 작업 생성됨", job_id=job.job_id)
     return {
         "job_id": job.job_id,
         "job_type": "REALTIME",
@@ -49,14 +52,14 @@ async def conversation_stream(websocket: WebSocket, job_id: str):
     job = active_jobs.get(job_id)
 
     if not job:
-        print(f"[WebSocket] 🔴 존재하지 않는 Job ID로 연결 시도: {job_id}")
+        logger.error("[WebSocket] 존재하지 않는 Job ID로 연결 시도", job_id=job_id)
         await websocket.close(code=1008, reason="Job ID not found")
         job_manager.log_error(job_id, "websocket_stream", "존재하지 않는 Job ID")
         return
 
     # 2. 연결 수락
     await websocket.accept()
-    print(f"[WebSocket] 🟢 클라이언트 연결됨 (Job: {job_id})")
+    logger.info("[WebSocket] 클라이언트 연결됨", job_id=job_id)
 
     # ✅ JobManager로 상태 업데이트
     job_manager.update_status(job_id, JobStatus.PROCESSING)
@@ -79,7 +82,7 @@ async def conversation_stream(websocket: WebSocket, job_id: str):
                 await websocket.send_json(result)
 
     except WebSocketDisconnect:
-        print(f"[WebSocket] 🟡 클라이언트 연결 끊김 (Job: {job_id})")
+        logger.info("[WebSocket] 클라이언트 연결 끊김", job_id=job_id)
 
         # ✅ Pipeline로 최종 처리
         final_result = await pipeline.finalize()
@@ -93,7 +96,7 @@ async def conversation_stream(websocket: WebSocket, job_id: str):
     except Exception as e:
         error_msg = f"예기치 않은 오류: {str(e)}"
 
-        print(f"[WebSocket] 🔴 {error_msg}")
+        logger.error("[WebSocket] 예기치 않은 오류", error_msg=e)
 
         job_manager.log_error(job_id, "websocket", error_msg)
 
@@ -103,4 +106,4 @@ async def conversation_stream(websocket: WebSocket, job_id: str):
         # 전역 매니저에서 Job 제거 (메모리 누수 방지!)
         if job_id in active_jobs:
             del active_jobs[job_id]
-            print(f"[JobManager] 🗑️  스트림 작업 제거됨 (메모리 정리): {job_id}")
+            logger.info("[JobManager] 스트림 작업 제거됨 (메모리 정리)", job_id=job_id)

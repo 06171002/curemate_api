@@ -5,6 +5,9 @@ from typing import Dict, Any, Optional
 import sys
 from .database_service import db_service
 from . import cache_service
+from patient_api.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class JobStatus(Enum):
@@ -32,7 +35,7 @@ class JobManager:
     def __init__(self):
         self.db = db_service
         self.cache = cache_service
-        print("[JobManager] 🟢 작업 관리자 초기화 완료")
+        logger.info("JobManager 초기화 완료")
 
     # ==================== 작업 생성 ====================
 
@@ -62,23 +65,31 @@ class JobManager:
             )
 
             if not db_success:
-                print(f"[JobManager] 🔴 DB 작업 생성 실패: {job_id}", file=sys.stderr)
+                logger.error("DB 작업 생성 실패", job_id=job_id)
                 return False
 
             # 2. Redis 캐시 생성 (Secondary, 실패해도 치명적이지 않음)
             cache_success = self.cache.create_job(job_id, metadata)
 
             if not cache_success:
-                print(f"[JobManager] ⚠️ Redis 캐시 생성 실패: {job_id}")
+                logger.warning("Redis 캐시 생성 실패", job_id=job_id)
                 self.db.log_error(job_id, "job_manager", "Redis 캐시 생성 실패")
 
-            print(f"[JobManager] ✅ 작업 생성 완료: {job_id} ({job_type.value})")
+            logger.info(
+                "작업 생성 완료",
+                job_id=job_id,
+                job_type=job_type.value
+            )
             return True
 
         except Exception as e:
-            error_msg = f"작업 생성 중 오류: {str(e)}"
-            print(f"[JobManager] 🔴 {error_msg}", file=sys.stderr)
-            self.db.log_error(job_id, "job_manager", error_msg)
+            logger.error(
+                "작업 생성 중 오류",
+                job_id=job_id,
+                exc_info=True,
+                error=str(e)
+            )
+            self.db.log_error(job_id, "job_manager", str(e))
             return False
 
     # ==================== 작업 조회 ====================
@@ -94,11 +105,11 @@ class JobManager:
             # 1. Redis 캐시에서 먼저 조회 (빠름)
             cached_job = self.cache.get_job(job_id)
             if cached_job:
-                print(f"[JobManager] 🔍 캐시 히트: {job_id}")
+                logger.info("캐시 히트", job_id=job_id)
                 return cached_job
 
             # 2. DB에서 조회 (폴백)
-            print(f"[JobManager] 🔍 캐시 미스, DB 조회: {job_id}")
+            logger.info("캐시 미스, DB 조회", job_id=job_id)
             db_job = self.db.get_stt_job(job_id)
 
             if db_job:
@@ -108,7 +119,7 @@ class JobManager:
             return db_job
 
         except Exception as e:
-            print(f"[JobManager] 🔴 작업 조회 실패 ({job_id}): {e}", file=sys.stderr)
+            logger.error("작업 조회 실패",job_id=job_id,exc_info=True,message=sys.stderr)
             return None
 
     # ==================== 작업 상태 업데이트 ====================
@@ -147,7 +158,7 @@ class JobManager:
             )
 
             if not db_success:
-                print(f"[JobManager] 🔴 DB 상태 업데이트 실패: {job_id}", file=sys.stderr)
+                logger.error("DB 상태 업데이트 실패", job_id=job_id,exc_info=True,message=sys.stderr)
                 return False
 
             # 2. Redis 캐시 업데이트 (Secondary, 선택적)
@@ -166,16 +177,15 @@ class JobManager:
             cache_success = self.cache.update_job(job_id, cache_data)
 
             if not cache_success:
-                print(f"[JobManager] ⚠️ Redis 캐시 업데이트 실패: {job_id}")
+                logger.warning("Redis 캐시 업데이트 실패", job_id=job_id)
                 # Redis 실패는 치명적이지 않으므로 경고만
 
-            print(f"[JobManager] ✅ 상태 업데이트: {job_id} → {status.value}")
+            logger.info("상태 업데이트", job_id=job_id, job_status= status.value)
             return True
 
         except Exception as e:
-            error_msg = f"상태 업데이트 중 오류: {str(e)}"
-            print(f"[JobManager] 🔴 {error_msg}", file=sys.stderr)
-            self.db.log_error(job_id, "job_manager", error_msg)
+            logger.error("상태 업데이트 중 오류", job_id=job_id, message=sys.stderr)
+            self.db.log_error(job_id, "job_manager", str(e))
             return False
 
     # ==================== Pub/Sub (Redis 전용) ====================
@@ -190,9 +200,9 @@ class JobManager:
         """
         try:
             self.cache.publish_message(job_id, event_data)
-            print(f"[JobManager] 📢 이벤트 발행: {job_id} - {event_data.get('type')}")
+            logger.info("이벤트 발행", job_id=job_id, event_data= event_data)
         except Exception as e:
-            print(f"[JobManager] ⚠️ 이벤트 발행 실패: {e}")
+            logger.error("이벤트 발행 실패", message=str(e))
             self.db.log_error(job_id, "job_manager_pubsub", str(e))
 
     async def subscribe_events(self, job_id: str):
@@ -206,7 +216,7 @@ class JobManager:
             async for message in self.cache.subscribe_to_messages(job_id):
                 yield message
         except Exception as e:
-            print(f"[JobManager] 🔴 이벤트 구독 오류: {e}", file=sys.stderr)
+            logger.error("이벤트 구독 오류", message=sys.stderr)
             self.db.log_error(job_id, "job_manager_pubsub", str(e))
 
     # ==================== 세그먼트 관리 (선택적) ====================
@@ -232,7 +242,7 @@ class JobManager:
                 end_time
             )
         except Exception as e:
-            print(f"[JobManager] 🔴 세그먼트 저장 실패: {e}", file=sys.stderr)
+            logger.error("세그먼트 저장 실패", message=sys.stderr)
             return False
 
     def get_segments(self, job_id: str):
@@ -245,7 +255,7 @@ class JobManager:
         try:
             return self.db.get_stt_segments(job_id)
         except Exception as e:
-            print(f"[JobManager] 🔴 세그먼트 조회 실패: {e}", file=sys.stderr)
+            logger.error("세그먼트 조회 실패", error_message= e, message=sys.stderr)
             return []
 
     # ==================== 에러 로그 ====================
@@ -260,7 +270,7 @@ class JobManager:
         try:
             return self.db.log_error(job_id, service_name, error_message)
         except Exception as e:
-            print(f"[JobManager] 🔴 에러 로그 기록 실패: {e}", file=sys.stderr)
+            logger.error("에러 로그 기록 실패", error_message=e, message=sys.stderr)
             return False
 
     def get_errors(self, job_id: str):
@@ -273,7 +283,7 @@ class JobManager:
         try:
             return self.db.get_error_logs(job_id)
         except Exception as e:
-            print(f"[JobManager] 🔴 에러 로그 조회 실패: {e}", file=sys.stderr)
+            logger.error("에러 로그 조회 실패", error_message=e, message=sys.stderr)
             return []
 
     # ==================== 내부 헬퍼 메서드 ====================
@@ -292,10 +302,10 @@ class JobManager:
             }
 
             self.cache.update_job(job_id, cache_data)
-            print(f"[JobManager] 🔄 캐시 동기화 완료: {job_id}")
+            logger.info("캐시 동기화 완료", job_id=job_id)
 
         except Exception as e:
-            print(f"[JobManager] ⚠️ 캐시 동기화 실패: {e}")
+            logger.error("캐시 동기화 실패", message=e)
 
 
 # ==================== 전역 인스턴스 ====================

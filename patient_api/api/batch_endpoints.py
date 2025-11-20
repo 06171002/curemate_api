@@ -14,6 +14,9 @@ from sse_starlette.sse import EventSourceResponse
 from patient_api.services.storage import job_manager, JobType, JobStatus
 from patient_api.services import tasks
 from patient_api.core.config import settings
+from patient_api.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 router = APIRouter()
@@ -37,7 +40,7 @@ async def create_conversation_request(
         with open(temp_file_path, "wb") as f:
             f.write(contents)
     except Exception as e:
-        print(f"🔴 파일 저장 실패: {e}")
+        logger.error("파일 저장 실패", error_messag=e)
         raise HTTPException(
             status_code=500,
             detail=f"파일을 임시 저장하는 데 실패했습니다: {e}"
@@ -58,10 +61,10 @@ async def create_conversation_request(
     # 3. Celery Task 백그라운드 작업 예약
     try:
         tasks.run_stt_and_summary_pipeline.delay(job_id, temp_file_path)
-        print(f"[Batch] 🟢 작업 생성 완료 (Job ID: {job_id})")
+        logger.info("작업 생성 완료", job_id=job_id)
     except Exception as e:
         error_msg = f"Celery 작업 예약 실패: {str(e)}"
-        print(f"[Batch] 🔴 {error_msg}")
+        logger.error("Celery 작업 예약 실패",error_msg=e)
 
         # ✅ JobManager로 실패 상태 업데이트
         job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
@@ -108,7 +111,7 @@ async def stream_events(job_id: str, request: Request):
             async for message_data in job_manager.subscribe_events(job_id):
                 # 클라이언트 연결 확인
                 if await request.is_disconnected():
-                    print(f"[SSE] (Job {job_id}) 클라이언트 연결 끊김")
+                    logger.info("[SSE] 클라이언트 연결 끊김", job_id=job_id)
                     break
 
                 event_type = message_data.get("type", "message")
@@ -121,12 +124,12 @@ async def stream_events(job_id: str, request: Request):
 
                 # 최종 요약 수신 시 스트림 종료
                 if event_type == "final_summary":
-                    print(f"[SSE] (Job {job_id}) 최종 요약 전송 완료, 스트림 종료")
+                    logger.info("[SSE] 최종 요약 전송 완료, 스트림 종료", job_id=job_id)
                     break
 
         except Exception as e:
             error_msg = f"스트리밍 중 오류: {str(e)}"
-            print(f"[SSE] 🔴 (Job {job_id}) {error_msg}")
+            logger.error("스트리밍 중 오류", error_msg=e)
 
             # ✅ JobManager로 에러 로깅
             job_manager.log_error(job_id, "sse_stream", error_msg)

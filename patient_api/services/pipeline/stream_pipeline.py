@@ -5,6 +5,9 @@ from patient_api.services.stt import transcribe_segment_from_bytes
 from patient_api.services.llm import llm_service
 from patient_api.services.storage import job_manager, JobStatus
 from patient_api.domain.streaming_job import StreamingJob
+from patient_api.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class StreamPipeline:
@@ -51,6 +54,7 @@ class StreamPipeline:
                     }
 
                     print(f"[StreamPipeline] 🎤 세그먼트 {self.segment_count}: {segment_text[:30]}...")
+                    logger.info("[StreamPipeline] 세그먼트", text=self.segment_count + segment_text)
 
             except Exception as e:
                 error_msg = f"STT 오류: {str(e)}"

@@ -8,6 +8,9 @@ import httpx
 import re
 from .base_llm_service import BaseLLMService, LLMConnectionError, LLMResponseError
 from patient_api.core.config import settings
+from patient_api.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # --- 1. LM Studio 설정 ---
 LMSTUDIO_BASE_URL = settings.LMSTUDIO_BASE_URL
@@ -25,16 +28,15 @@ async def check_llm_connection():
     FastAPI 서버 시작 시 LM Studio 서버가 켜져 있는지 확인합니다.
     """
     try:
-        print("[LLM Service] 🟡 LM Studio 서버 연결을 시도합니다...")
+        logger.info("[LLM Service] LM Studio 서버 연결을 시도합니다...")
         async with httpx.AsyncClient() as client:
             response = await client.get(LMSTUDIO_HEALTH_URL)
             response.raise_for_status()
-        print(f"[LLM Service] 🟢 LM Studio 서버 연결 성공.")
+        logger.info("[LLM Service] LM Studio 서버 연결 성공.")
     except httpx.RequestError as e:
-        print(f"[LLM Service] 🔴 LM Studio 서버 연결 실패: {e}", file=sys.stderr)
-        print("[LLM Service] 🔴 LM Studio가 Windows에서 0.0.0.0 호스트로 실행 중인지 확인하세요.", file=sys.stderr)
+        logger.error("[LLM Service] LM Studio 서버 연결 실패 LM Studio가 Windows에서 0.0.0.0 호스트로 실행 중인지 확인하세요.", error_msg=e)
     except Exception as e:
-        print(f"[LLM Service] 🔴 LM Studio 연결 중 알 수 없는 오류: {e}", file=sys.stderr)
+        logger.error("[LLM Service] LM Studio 연결 중 알 수 없는 오류", error_msg=e)
 
 
 # --- 2. 프롬프트 템플릿 ---
@@ -156,8 +158,8 @@ def _parse_json_response(raw_response: str) -> Dict[str, Any]:
         match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', cleaned, re.DOTALL)
 
         if not match:
-            print(f"[LLM Service] 🔴 JSON 파싱 실패: 응답에서 JSON 객체를 찾을 수 없습니다.", file=sys.stderr)
-            print(f"[LLM Service] 🔴 원본 응답:\n{raw_response}", file=sys.stderr)
+            logger.error("[LLM Service] JSON 파싱 실패: 응답에서 JSON 객체를 찾을 수 없습니다.")
+            logger.error("[LLM Service] 원본 응답", error_msg= raw_response)
             raise ValueError("응답에서 JSON 객체를 찾을 수 없습니다.")
 
         json_string = match.group(0).strip()
@@ -165,13 +167,13 @@ def _parse_json_response(raw_response: str) -> Dict[str, Any]:
         # 3. JSON 파싱
         parsed_data = json.loads(json_string)
 
-        print(f"[LLM Service] 🟢 JSON 파싱 성공: {list(parsed_data.keys())}")
+        logger.info("[LLM Service] JSON 파싱 성공", message=list(parsed_data.keys()))
         return parsed_data
 
     except json.JSONDecodeError as e:
-        print(f"[LLM Service] 🔴 JSON 디코딩 실패! (Error: {e})", file=sys.stderr)
-        print(f"[LLM Service] 🔴 추출된 JSON 문자열:\n{json_string if 'json_string' in locals() else 'N/A'}", file=sys.stderr)
-        print(f"[LLM Service] 🔴 원본 응답 (전체):\n{raw_response}", file=sys.stderr)
+        logger.error("[LLM Service] JSON 디코딩 실패!", error_msg=e)
+        logger.error("[LLM Service] 추출된 JSON 문자열", message=json_string)
+        logger.error("[LLM Service] 원본 응답 (전체)", message=raw_response)
         raise ValueError("LM Studio가 반환한 응답이 올바른 JSON 형식이 아닙니다.")
 
 
@@ -194,10 +196,10 @@ async def _call_llm(prompt: str, temperature: float = 0.0) -> str:
         return raw_response
 
     except httpx.RequestError as e:
-        print(f"[LLM Service] 🔴 LM Studio 연결 오류: {e}", file=sys.stderr)
+        logger.error("[LLM Service] LM Studio 연결 오류", error_msg=e)
         raise RuntimeError(f"LM Studio 서비스에 연결할 수 없습니다: {e}")
     except Exception as e:
-        print(f"[LLM Service] 🔴 LLM 호출 중 알 수 없는 오류: {e}", file=sys.stderr)
+        logger.error("[LLM Service] LLM 호출 중 알 수 없는 오류", error_msg=e)
         raise e
 
 
@@ -212,7 +214,7 @@ async def get_simple_summary(transcript: str) -> Dict[str, Any]:
         "summary": "요약된 내용"
     }
     """
-    print(f"[LLM Service] 🔵 간단 요약 작업 시작...")
+    logger.info("[LLM Service] 간단 요약 작업 시작...")
 
     prompt = _build_simple_summary_prompt(transcript)
     raw_response = await _call_llm(prompt, temperature=0.0)
@@ -222,7 +224,7 @@ async def get_simple_summary(transcript: str) -> Dict[str, Any]:
     if "summary" not in summary_dict:
         raise ValueError("응답에 'summary' 키가 없습니다.")
 
-    print(f"[LLM Service] 🟢 간단 요약 완료")
+    logger.info("[LLM Service] 간단 요약 완료")
     return summary_dict
 
 
@@ -237,7 +239,7 @@ async def get_medical_summary(transcript: str) -> Dict[str, Any]:
         "recommendation": "처방, 검사 계획, 또는 생활 권고 사항"
     }
     """
-    print(f"[LLM Service] 🔵 의료 요약 작업 시작...")
+    logger.info("[LLM Service] 의료 요약 작업 시작...")
 
     prompt = _build_medical_summary_prompt(transcript)
     raw_response = await _call_llm(prompt, temperature=0.0)
@@ -248,7 +250,7 @@ async def get_medical_summary(transcript: str) -> Dict[str, Any]:
     missing_keys = [key for key in required_keys if key not in summary_dict]
 
     if missing_keys:
-        print(f"[LLM Service] ⚠️ 응답에 누락된 키: {missing_keys}", file=sys.stderr)
+        logger.warning("응답에 누락된 키", key=missing_keys)
         # 누락된 키를 빈 문자열로 채움 (유연한 처리)
         for key in missing_keys:
             summary_dict[key] = ""
@@ -274,13 +276,13 @@ async def get_structured_data(transcript: str) -> Dict[str, Any]:
         "lifestyle_advice": "..."
     }
     """
-    print(f"[LLM Service] 🔵 구조화된 데이터 추출 작업 시작...")
+    logger.info("[LLM Service] 구조화된 데이터 추출 작업 시작...")
 
     prompt = _build_structured_extraction_prompt(transcript)
     raw_response = await _call_llm(prompt, temperature=0.0)
     structured_dict = _parse_json_response(raw_response)
 
-    print(f"[LLM Service] 🟢 구조화된 데이터 추출 완료")
+    logger.info("[LLM Service] 구조화된 데이터 추출 완료")
     return structured_dict
 
 
@@ -305,14 +307,14 @@ class LmService(BaseLLMService):
 
     async def check_connection(self) -> bool:
         try:
-            print("[LM Studio Service] 🟡 서버 연결 확인...")
+            logger.info("[LM Studio Service] 서버 연결 확인...")
             async with httpx.AsyncClient() as client:
                 response = await client.get(self.health_url)
                 response.raise_for_status()
-            print(f"[LM Studio Service] 🟢 연결 성공")
+            logger.info("[LM Studio Service] 연결 성공")
             return True
         except httpx.RequestError as e:
-            print(f"[LM Studio Service] 🔴 연결 실패: {e}")
+            logger.error("[LM Studio Service] 연결 실패", error_msg=e)
             raise LLMConnectionError(f"LM Studio 연결 실패: {e}")
 
     async def get_summary(self, transcript: str) -> Dict[str, Any]:

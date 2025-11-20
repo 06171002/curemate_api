@@ -6,6 +6,9 @@ from typing import Dict, Any
 from patient_api.services.stt import whisper_service
 from patient_api.services.llm import llm_service
 from patient_api.services.storage import job_manager, JobStatus
+from patient_api.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any]:
@@ -19,14 +22,14 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
     Returns:
         최종 결과 딕셔너리
     """
-    print(f"[BatchPipeline] 🔵 작업 시작 (Job: {job_id})")
+    logger.info("[BatchPipeline] 작업 시작", job_id=job_id)
 
     try:
         # ========== 1. PROCESSING 상태 ==========
         job_manager.update_status(job_id, JobStatus.PROCESSING)
 
         # ========== 2. STT 실행 ==========
-        print(f"[BatchPipeline] 🎤 STT 시작...")
+        logger.info("[BatchPipeline] STT 시작...")
 
         transcript_segments = []
         segment_count = 0
@@ -50,7 +53,7 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             error_msg = f"STT 오류: {str(stt_error)}"
             stack_trace = traceback.format_exc()
 
-            print(f"[BatchPipeline] 🔴 {error_msg}", file=sys.stderr)
+            logger.error("[BatchPipeline]", error_msg=error_msg)
             job_manager.log_error(job_id, "batch_stt", f"{error_msg}\n\n{stack_trace}")
             raise
 
@@ -59,7 +62,7 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
 
         if not full_transcript:
             warning_msg = "STT 결과 없음"
-            print(f"[BatchPipeline] ⚠️ {warning_msg}")
+            logger.warning("[BatchPipeline]", warning_msg=warning_msg)
 
             job_manager.update_status(
                 job_id,
@@ -76,10 +79,10 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             segment_count=segment_count
         )
 
-        print(f"[BatchPipeline] ✅ STT 완료 ({segment_count}개)")
+        logger.info("[BatchPipeline] STT 완료", segment_count=segment_count)
 
         # ========== 4. 요약 실행 ==========
-        print(f"[BatchPipeline] 🤖 요약 시작...")
+        logger.info("[BatchPipeline] 요약 시작...")
 
         try:
             summary_dict = await llm_service.get_summary(full_transcript)
@@ -88,7 +91,7 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             error_msg = f"요약 오류: {str(summary_error)}"
             stack_trace = traceback.format_exc()
 
-            print(f"[BatchPipeline] 🔴 {error_msg}", file=sys.stderr)
+            logger.error("[BatchPipeline]", error_msg=error_msg)
             job_manager.log_error(job_id, "batch_summary", f"{error_msg}\n\n{stack_trace}")
 
             return {
@@ -111,7 +114,7 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             summary=summary_dict
         )
 
-        print(f"[BatchPipeline] 🟢 작업 완료")
+        logger.info("[BatchPipeline] 작업 완료")
 
         return {
             "status": "completed",
@@ -125,7 +128,7 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
         error_msg = f"파이프라인 실패: {str(e)}"
         stack_trace = traceback.format_exc()
 
-        print(f"[BatchPipeline] 🔴 {error_msg}", file=sys.stderr)
+        logger.error("[BatchPipeline]", error_msg=error_msg)
 
         job_manager.log_error(job_id, "batch_pipeline", f"{error_msg}\n\n{stack_trace}")
         job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
@@ -137,6 +140,6 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
         if os.path.exists(audio_file_path):
             try:
                 os.remove(audio_file_path)
-                print(f"[BatchPipeline] 🗑️ 임시 파일 삭제")
+                logger.info("[BatchPipeline] 임시 파일 삭제")
             except Exception as e:
-                print(f"[BatchPipeline] ⚠️ 파일 삭제 실패: {e}")
+                logger.error("[BatchPipeline] 파일 삭제 실패", error_msg=e)

@@ -5,6 +5,9 @@ from typing import Dict, Any, Optional
 from patient_api.core.config import settings
 
 from .base_llm_service import BaseLLMService, LLMConnectionError, LLMResponseError
+from patient_api.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # --- 1. Ollama 설정 (F-SUM-01 세부사항) ---
 
@@ -69,12 +72,12 @@ class OllamaService(BaseLLMService):
 
     async def check_connection(self) -> bool:
         try:
-            print("[Ollama Service] 🟡 서버 연결 확인...")
+            logger.info("[Ollama Service] 서버 연결 확인...")
             await self.client.get("http://host.docker.internal:11434/api/tags")
-            print(f"[Ollama Service] 🟢 연결 성공 (모델: {self.model_name})")
+            logger.info("[Ollama Service] 연결 성공", model=self.model_name)
             return True
         except httpx.RequestError as e:
-            print(f"[Ollama Service] 🔴 연결 실패: {e}", file=sys.stderr)
+            logger.error("[Ollama Service] 연결 실패", error_msg=e)
             raise LLMConnectionError(f"Ollama 연결 실패: {e}")
 
     async def get_summary(transcript: str) -> Dict[str, Any]:
@@ -82,7 +85,7 @@ class OllamaService(BaseLLMService):
         텍스트 대본을 받아 Ollama에 요약을 요청하고,
         파싱된 딕셔너리(JSON)를 반환합니다.
         """
-        print(f"[Ollama Service] 🔵 요약 작업을 시작합니다...")
+        logger.info("[Ollama Service] 요약 작업을 시작합니다...")
 
         # 1. 프롬프트 생성 (F-SUM-02)
         prompt_text = _build_summary_prompt(transcript)
@@ -106,19 +109,18 @@ class OllamaService(BaseLLMService):
             raw_response_string = response.json()["response"]
 
         except httpx.HTTPStatusError as e:
-            print(f"[Ollama Service] 🔴 Ollama API 오류 (HTTP {e.response.status_code}): {e.response.text}",
-                  file=sys.stderr)
+            logger.error("[Ollama Service] Ollama API 오류", status_code=e.response.status_code, error_msg=e.response.text)
             raise RuntimeError(f"Ollama API 오류: {e.response.text}")
         except httpx.RequestError as e:
-            print(f"[Ollama Service] 🔴 Ollama 연결 오류: {e}", file=sys.stderr)
+            logger.error("[Ollama Service] Ollama 연결 오류", error_msg=e)
             raise RuntimeError(f"Ollama 서비스에 연결할 수 없습니다: {e}")
         except Exception as e:
-            print(f"[Ollama Service] 🔴 요약 요청 중 알 수 없는 오류: {e}", file=sys.stderr)
+            logger.error("[Ollama Service] 요약 요청 중 알 수 없는 오류", error_msg=e)
             raise e  # worker.py가 처리하도록 예외를 다시 발생시킴
 
         # 3. 결과 파싱 (F-SUM-03)
         if not raw_response_string:
-            print("[Ollama Service] 🔴 Ollama가 비어있는 응답을 반환했습니다.", file=sys.stderr)
+            logger.error("[Ollama Service] Ollama가 비어있는 응답을 반환했습니다.")
             raise ValueError("Ollama가 비어있는 응답을 반환했습니다.")
 
         try:
@@ -128,12 +130,12 @@ class OllamaService(BaseLLMService):
 
             summary_dict = json.loads(raw_response_string)
 
-            print(f"[Ollama Service] 🟢 요약 작업 완료 및 JSON 파싱 성공.")
+            logger.info("[Ollama Service] 요약 작업 완료 및 JSON 파싱 성공.")
             return summary_dict
 
         except json.JSONDecodeError:
-            print(f"[Ollama Service] 🔴 Ollama 응답 JSON 파싱 실패!", file=sys.stderr)
-            print(f"[Ollama Service] 🔴 Ollama 원본 응답: {raw_response_string}", file=sys.stderr)
+            logger.error("[Ollama Service] Ollama 응답 JSON 파싱 실패!")
+            logger.error("[Ollama Service] Ollama 원본 응답", raw_response=raw_response_string)
             raise ValueError("Ollama가 반환한 요약이 올바른 JSON 형식이 아닙니다.")
 
     async def get_medical_summary(self, transcript: str) -> Dict[str, Any]:

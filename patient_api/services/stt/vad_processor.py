@@ -2,6 +2,9 @@
 from patient_api.core.config import constants
 import webrtcvad
 from collections import deque
+from patient_api.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class VADProcessor:
@@ -38,7 +41,7 @@ class VADProcessor:
         # VAD는 정확히 'frame_bytes' 크기의 조각만 처리할 수 있습니다.
         # (클라이언트가 30ms 조각으로 보내야 함을 의미)
         if len(audio_chunk) != self.frame_bytes:
-            print(f"오류: VAD는 정확히 {self.frame_bytes} 바이트의 청크만 처리할 수 있습니다.")
+            logger.error("오류: VAD는 정확히 2 바이트의 청크만 처리할 수 있습니다.")
             return None
 
         is_speech = self.vad.is_speech(audio_chunk, self.sample_rate)

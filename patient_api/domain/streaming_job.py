@@ -2,6 +2,9 @@ import uuid
 from typing import List, Dict
 from patient_api.services.stt.vad_processor import VADProcessor  #
 from patient_api.core.config import constants
+from patient_api.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 class StreamingJob:
     """
@@ -25,7 +28,12 @@ class StreamingJob:
 
         self.status: str = "processing"  # 인메모리 상태
 
-        print(f"[StreamingJob] 🟢 Job {self.job_id} 생성됨 (VAD 초기화 완료)")
+        logger.info(
+            "StreamingJob 생성 완료",
+            job_id=self.job_id,
+            vad_sample_rate=constants.VAD_SAMPLE_RATE,
+            vad_frame_duration=constants.VAD_FRAME_DURATION_MS
+        )
 
     def process_audio_chunk(self, audio_chunk: bytes):
         """
@@ -34,7 +42,11 @@ class StreamingJob:
         """
         segment_bytes = self.vad_processor.process_chunk(audio_chunk)
         if segment_bytes:
-            print(f"[StreamingJob] (Job {self.job_id}) 🎤 VAD가 음성 세그먼트 감지!")
+            logger.debug(
+                "VAD 음성 세그먼트 감지",
+                job_id=self.job_id,
+                segment_bytes=len(segment_bytes)
+            )
             # (나중에 여기에 STT 로직 추가)
             # (테스트를 위해 임시로 '감지됨' 텍스트 추가)
             self.full_transcript.append(f"[감지된 세그먼트: {len(segment_bytes)} bytes]")
