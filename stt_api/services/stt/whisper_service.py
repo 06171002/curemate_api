@@ -1,12 +1,10 @@
-# patient_api/services/stt/whisper_service.py (수정버전)
-
 from faster_whisper import WhisperModel
 from typing import Optional, Generator
 import numpy as np
 
-from patient_api.core.config import settings
-from patient_api.core.logging_config import get_logger, LogContext
-from patient_api.core.exceptions import (
+from stt_api.core.config import settings
+from stt_api.core.logging_config import get_logger, LogContext
+from stt_api.core.exceptions import (
     ModelNotLoadedError,
     STTProcessingError,
     AudioFormatError

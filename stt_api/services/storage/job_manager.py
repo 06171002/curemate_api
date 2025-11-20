@@ -1,11 +1,9 @@
-# patient_api/services/storage/job_manager.py
-
 from enum import Enum
 from typing import Dict, Any, Optional
 import sys
 from .database_service import db_service
 from . import cache_service
-from patient_api.core.logging_config import get_logger
+from stt_api.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

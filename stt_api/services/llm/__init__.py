@@ -1,7 +1,7 @@
 from .base_llm_service import BaseLLMService, LLMServiceError, LLMConnectionError
 from .ollama_service import ollama_service
 from .lm_service import lm_service
-from patient_api.core.config import settings
+from stt_api.core.config import settings
 
 
 LLM_PROVIDER = settings.LLM_PROVIDER

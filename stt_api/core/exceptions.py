@@ -1,5 +1,3 @@
-# patient_api/core/exceptions.py
-
 """
 커스텀 예외 정의
 

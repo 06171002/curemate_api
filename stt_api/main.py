@@ -1,5 +1,3 @@
-# patient_api/main.py (수정버전)
-
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
@@ -7,18 +5,18 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
 # ✅ 로깅 및 예외 처리 임포트
-from patient_api.core.logging_config import setup_logging, get_logger
-from patient_api.core.exceptions import CustomException
+from stt_api.core.logging_config import setup_logging, get_logger
+from stt_api.core.exceptions import CustomException
 
 # 서비스 모듈
-from patient_api.services.llm import llm_service
-from patient_api.services.stt import whisper_service
+from stt_api.services.llm import llm_service
+from stt_api.services.stt import whisper_service
 
 # 라우터
-from patient_api.api import batch_endpoints, stream_endpoints
+from stt_api.api import batch_endpoints, stream_endpoints
 
 # 설정
-from patient_api.core.config import settings
+from stt_api.core.config import settings
 
 # ✅ 로거 인스턴스 생성
 logger = get_logger(__name__)
@@ -223,7 +221,7 @@ async def health_check():
 
     서비스 상태 확인용 (로드 밸런서, 모니터링 도구)
     """
-    from patient_api.services.storage import job_manager
+    from stt_api.services.storage import job_manager
 
     # Redis 연결 확인
     redis_status = "ok"
@@ -277,7 +275,7 @@ if __name__ == "__main__":
     logger.info("Uvicorn 서버 시작 (직접 실행 모드)")
 
     uvicorn.run(
-        "patient_api.main:app",
+        "stt_api.main:app",
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG

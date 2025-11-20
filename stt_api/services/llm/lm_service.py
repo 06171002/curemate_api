@@ -1,5 +1,3 @@
-# patient_api/services/llm_service.py
-
 import json
 import sys
 from typing import Dict, Any
@@ -7,8 +5,8 @@ from openai import AsyncOpenAI
 import httpx
 import re
 from .base_llm_service import BaseLLMService, LLMConnectionError, LLMResponseError
-from patient_api.core.config import settings
-from patient_api.core.logging_config import get_logger
+from stt_api.core.config import settings
+from stt_api.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

@@ -1,5 +1,3 @@
-# patient_api/api/stream_endpoints.py (개선 버전)
-
 from fastapi import (
     APIRouter,
     WebSocket,
@@ -7,11 +5,11 @@ from fastapi import (
     HTTPException
 )
 
-from patient_api.domain.streaming_job import StreamingJob
-from patient_api.services.pipeline import StreamPipeline
-from patient_api.services.storage import job_manager, JobType, JobStatus
-from patient_api.core.config import active_jobs
-from patient_api.core.logging_config import get_logger
+from stt_api.domain.streaming_job import StreamingJob
+from stt_api.services.pipeline import StreamPipeline
+from stt_api.services.storage import job_manager, JobType, JobStatus
+from stt_api.core.config import active_jobs
+from stt_api.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

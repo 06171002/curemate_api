@@ -1,10 +1,8 @@
-# patient_api/services/tasks.py
-
 import asyncio
-from patient_api.services.storage import job_manager, JobStatus
-from patient_api.services.pipeline import run_batch_pipeline
-from patient_api.core.celery_config import celery_app
-from patient_api.core.logging_config import get_logger
+from stt_api.services.storage import job_manager, JobStatus
+from stt_api.services.pipeline import run_batch_pipeline
+from stt_api.core.celery_config import celery_app
+from stt_api.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

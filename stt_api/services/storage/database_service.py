@@ -1,5 +1,3 @@
-# patient_api/services/database_service.py
-
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import json

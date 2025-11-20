@@ -1,8 +1,8 @@
 
-from patient_api.core.config import constants
+from stt_api.core.config import constants
 import webrtcvad
 from collections import deque
-from patient_api.core.logging_config import get_logger
+from stt_api.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

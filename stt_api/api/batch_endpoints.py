@@ -1,5 +1,3 @@
-# patient_api/api/batch_endpoints.py
-
 import os
 import uuid
 import json
@@ -11,10 +9,10 @@ from fastapi import (
     Request
 )
 from sse_starlette.sse import EventSourceResponse
-from patient_api.services.storage import job_manager, JobType, JobStatus
-from patient_api.services import tasks
-from patient_api.core.config import settings
-from patient_api.core.logging_config import get_logger
+from stt_api.services.storage import job_manager, JobType, JobStatus
+from stt_api.services import tasks
+from stt_api.core.config import settings
+from stt_api.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

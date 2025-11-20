@@ -1,5 +1,3 @@
-# patient_api/core/logging_config.py
-
 """
 구조화된 로깅 설정
 
@@ -12,7 +10,7 @@ import sys
 import json
 from datetime import datetime
 from typing import Any, Dict, Optional
-from patient_api.core.config import settings
+from stt_api.core.config import settings
 
 
 class JSONFormatter(logging.Formatter):
@@ -23,7 +21,7 @@ class JSONFormatter(logging.Formatter):
     {
         "timestamp": "2025-01-01T12:00:00.000Z",
         "level": "INFO",
-        "logger": "patient_api.services.stt",
+        "logger": "stt_api.services.stt",
         "message": "STT 작업 시작",
         "job_id": "abc-123",
         "duration_ms": 1234
@@ -58,7 +56,7 @@ class ColoredFormatter(logging.Formatter):
     개발 환경용 컬러 로그 Formatter
 
     출력 예시:
-    2025-01-01 12:00:00 | INFO     | patient_api.services.stt | STT 작업 시작
+    2025-01-01 12:00:00 | INFO     | stt_api.services.stt | STT 작업 시작
     """
 
     # ANSI 컬러 코드

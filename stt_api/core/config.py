@@ -1,5 +1,3 @@
-# patient_api/core/config.py (하이브리드 버전)
-
 from pydantic_settings import BaseSettings
 from typing import Dict, Literal
 from functools import lru_cache
@@ -100,6 +98,6 @@ constants = Constants()
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from patient_api.domain.streaming_job import StreamingJob
+    from stt_api.domain.streaming_job import StreamingJob
 
 active_jobs: Dict[str, "StreamingJob"] = {}

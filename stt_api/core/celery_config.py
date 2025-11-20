@@ -1,6 +1,6 @@
 from celery import Celery
-from patient_api.core.config import settings
-from patient_api.core.config import constants
+from stt_api.core.config import settings
+from stt_api.core.config import constants
 
 # 1. 브로커 URL 설정 (job_manager.py와 동일한 Redis 서버)
 # 0번 DB를 Celery가 메시지 큐로 사용합니다.
@@ -11,7 +11,7 @@ BROKER_URL = settings.REDIS_URL
 celery_app = Celery(
     'curemate_tasks',
     broker=BROKER_URL,
-    include=['patient_api.services.tasks']  # 'tasks.py' 파일에서 작업을 스캔하라는 의미
+    include=['stt_api.services.tasks']  # 'tasks.py' 파일에서 작업을 스캔하라는 의미
 )
 
 # 3. (중요) 결과 백엔드 설정 안 함!

@@ -1,8 +1,8 @@
 import uuid
 from typing import List, Dict
-from patient_api.services.stt.vad_processor import VADProcessor  #
-from patient_api.core.config import constants
-from patient_api.core.logging_config import get_logger
+from stt_api.services.stt.vad_processor import VADProcessor  #
+from stt_api.core.config import constants
+from stt_api.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

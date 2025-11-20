@@ -8,7 +8,7 @@ WORKDIR /app
 
 # 3. (★중요) requirements.txt를 먼저 복사하여 설치
 #    (이러면 나중에 코드만 수정해도 라이브러리를 다시 설치하지 않아 빠름)
-COPY patient_api/requirements.txt .
+COPY stt_api/requirements.txt .
 
 # 4. 라이브러리 설치
 #    (webrtcvad는 C++ 빌드가 필요할 수 있어 build-essential 설치)

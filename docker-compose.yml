@@ -15,7 +15,7 @@ services:
     build: .  # (현재 폴더의 Dockerfile을 사용)
     ports:
       - "8000:8000" # (Windows의 8000번 포트와 컨테이너 8000번 연결)
-    command: uvicorn patient_api.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn stt_api.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app # (코드를 수정하면 자동으로 컨테이너에 반영)
     depends_on:
@@ -24,7 +24,7 @@ services:
   # 3. Celery 워커 서비스 (★ Windows 오류 해결!)
   worker:
     build: .  # (API와 동일한 Dockerfile 사용)
-    command: python -m celery -A patient_api.core.celery_config.celery_app worker --loglevel=info -c 4
+    command: python -m celery -A stt_api.core.celery_config.celery_app worker --loglevel=info -c 4
     volumes:
       - .:/app
     depends_on:

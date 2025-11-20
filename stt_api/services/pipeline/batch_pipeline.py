@@ -3,10 +3,10 @@ import sys
 import traceback
 from typing import Dict, Any
 
-from patient_api.services.stt import whisper_service
-from patient_api.services.llm import llm_service
-from patient_api.services.storage import job_manager, JobStatus
-from patient_api.core.logging_config import get_logger
+from stt_api.services.stt import whisper_service
+from stt_api.services.llm import llm_service
+from stt_api.services.storage import job_manager, JobStatus
+from stt_api.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

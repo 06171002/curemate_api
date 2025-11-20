@@ -1,5 +1,3 @@
-# patient_api/services/storage/cache_service.py
-
 """
 Redis 캐시 서비스
 
@@ -14,8 +12,10 @@ import redis.asyncio as aioredis
 import time
 from typing import Dict, Any, Optional
 
-from patient_api.core.config import settings  # ✅ 설정 통합
+from stt_api.core.config import settings  # ✅ 설정 통합
+from stt_api.core.logging_config import get_logger
 
+logger = get_logger(__name__)
 
 # --- Redis 연결 ---
 
@@ -39,11 +39,11 @@ def connect_to_redis(max_retries=5, delay=2):
             )
 
             client.ping()
-            print(f"✅ Redis 연결 성공 (시도 {i + 1}회)")
+            logger.info("Redis 연결 성공", attempt=i + 1)
             return client, client_bytes
 
         except redis.exceptions.ConnectionError as e:
-            print(f"❌ Redis 연결 실패 (시도 {i + 1}/{max_retries}): {e}")
+            logger.error("Redis 연결 실패", attempt=i + 1, max_retries=max_retries, error=str(e))
             if i == max_retries - 1:
                 return None, None
             time.sleep(delay)
@@ -84,7 +84,7 @@ def create_job(job_id: str, metadata: Dict[str, Any] = None) -> bool:
         redis_client.set(key, json.dumps(initial_data))
         return True
     except Exception as e:
-        print(f"[CacheService] 작업 생성 실패 (Job {job_id}): {e}")
+        logger.error("작업 생성 실패", job_id=job_id, error=str(e))
         return False
 
 
@@ -137,7 +137,7 @@ def publish_message(job_id: str, message_data: Dict[str, Any]):
     channel = f"job_events:{job_id}"
     message = json.dumps(message_data)
     redis_client.publish(channel, message)
-    print(f"[CacheService] ➡️  메시지 발행: {channel}")
+    logger.info("메시지 발행", channel=channel, message_type=message_data.get('type'))
 
 
 async def subscribe_to_messages(job_id: str):
