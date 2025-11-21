@@ -30,6 +30,7 @@
 
 <details>
 <summary>👉 디렉토리 구조 펼치기/접기</summary>
+
 ```bash
 stt_api/
 ├── __init__.py                    # 패키지 초기화
@@ -66,13 +67,16 @@ stt_api/
 └── api/                           # 🌐 API 엔드포인트
     ├── batch_endpoints.py         # 배치 작업 API
     └── stream_endpoints.py        # 실시간 스트림 API
+```
 </details>
 
 ---------------------
+
 ## 💾 파일 후처리 (SSE) 아키텍처 흐름
 
 `POST /api/v1/conversation/request` (파일 업로드)와 `GET /api/v1/conversation/stream-events/{job_id}` (SSE 스트림) 요청 시의 상세 흐름입니다.
 
+```mermaid
 sequenceDiagram
     participant C as Client (App)
     participant API as API Server
