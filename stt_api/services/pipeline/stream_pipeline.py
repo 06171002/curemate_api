@@ -53,12 +53,20 @@ class StreamPipeline:
                         "segment_number": self.segment_count
                     }
 
-                    print(f"[StreamPipeline] 🎤 세그먼트 {self.segment_count}: {segment_text[:30]}...")
-                    logger.info("[StreamPipeline] 세그먼트", text=self.segment_count + segment_text)
+                    logger.info(
+                        "세그먼트 처리 완료",
+                        segment_number=self.segment_count,
+                        text_preview=segment_text[:30]
+                    )
 
             except Exception as e:
                 error_msg = f"STT 오류: {str(e)}"
-                print(f"[StreamPipeline] 🔴 {error_msg}")
+                logger.error(
+                    "세그먼트 STT 처리 실패",
+                    exc_info=True,
+                    segment_number=self.segment_count,
+                    error=str(e)
+                )
 
                 job_manager.log_error(self.job.job_id, "stream_stt", error_msg)
 
@@ -77,7 +85,11 @@ class StreamPipeline:
         final_transcript = self.job.get_full_transcript()
 
         if not final_transcript:
-            print(f"[StreamPipeline] ⚠️ 대화 내용 없음")
+            logger.warning(
+                "대화 내용 없음",
+                job_id=self.job.job_id,
+                segment_count=self.segment_count
+            )
 
             job_manager.update_status(
                 self.job.job_id,
@@ -99,10 +111,14 @@ class StreamPipeline:
                 transcript=final_transcript
             )
 
-            print(f"[StreamPipeline] ✅ STT 완료 ({self.segment_count}개)")
+            logger.info(
+                "STT 완료",
+                job_id=self.job.job_id,
+                segment_count=self.segment_count
+            )
 
             # 요약 시작
-            print(f"[StreamPipeline] 🤖 요약 시작...")
+            logger.info("요약 시작", job_id=self.job.job_id)
             summary_dict = await llm_service.get_summary(final_transcript)
 
             # 완료 상태
@@ -112,7 +128,7 @@ class StreamPipeline:
                 summary=summary_dict
             )
 
-            print(f"[StreamPipeline] ✅ 요약 완료")
+            logger.info("요약 완료", job_id=self.job.job_id)
 
             return {
                 "type": "final_summary",
@@ -122,7 +138,12 @@ class StreamPipeline:
 
         except Exception as e:
             error_msg = f"요약 오류: {str(e)}"
-            print(f"[StreamPipeline] 🔴 {error_msg}")
+            logger.error(
+                "요약 처리 실패",
+                exc_info=True,
+                job_id=self.job.job_id,
+                error=str(e)
+            )
 
             job_manager.log_error(self.job.job_id, "stream_summary", error_msg)
 

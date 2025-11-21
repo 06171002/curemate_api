@@ -172,22 +172,26 @@ async def subscribe_to_messages(job_id: str):
 
     try:
         await pubsub.subscribe(channel)
-        print(f"[CacheService] 🎧 채널 구독 시작: {channel}", flush=True)
+        logger.info("채널 구독 시작", channel=channel)
 
         while True:
             message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30.0)
 
             if message and message['type'] == 'message':
                 message_data = json.loads(message['data'])
-                print(f"[CacheService] ⬅️  메시지 수신: {message_data.get('type')}", flush=True)
+                logger.debug(
+                    "메시지 수신",
+                    channel=channel,
+                    message_type=message_data.get('type')
+                )
                 yield message_data
 
             await asyncio.sleep(0.1)
 
     except asyncio.CancelledError:
-        print(f"[CacheService] 🔌 구독 취소: {channel}", flush=True)
+        logger.info("구독 취소됨", channel=channel)
     except Exception as e:
-        print(f"[CacheService] 🔴 구독 오류: {e}", flush=True)
+        logger.error("구독 중 오류 발생", channel=channel, exc_info=True, error=str(e))
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.close()
