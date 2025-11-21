@@ -37,14 +37,14 @@ def load_stt_model() -> None:
         "STT 모델 로드 시작",
         model_size=settings.STT_MODEL_SIZE,
         device=settings.STT_DEVICE_TYPE,
-        compute_type="default"
+        compute_type="int8"
     )
 
     try:
         _model = WhisperModel(
             settings.STT_MODEL_SIZE,
             device=settings.STT_DEVICE_TYPE,
-            compute_type="default"
+            compute_type="int8"
         )
 
         logger.info(
@@ -273,20 +273,20 @@ def transcribe_segment_from_bytes(
             audio_float32,
             language=settings.STT_LANGUAGE,
             vad_filter=False,  # VAD는 이미 적용됨
-            initial_prompt=initial_prompt
+            initial_prompt=initial_prompt,
+            beam_size=1,  # ✅ 5 → 1 (속도 향상)
+            best_of=1,
         )
 
         # ⏱️ 4. 결과 수집
-        collection_start = time.perf_counter()
         segment_texts = [seg.text.strip() for seg in segments]
         result_text = " ".join(segment_texts)
-        collection_time = (time.perf_counter() - collection_start) * 1000
 
         stt_time = (time.perf_counter() - stt_start) * 1000
         total_time = (time.perf_counter() - total_start) * 1000
 
         # ✅ 상세 성능 로그
-        logger.debug(
+        logger.info(  # debug → info로 변경
             "세그먼트 STT 완료 (상세)",
             audio_size_bytes=len(audio_bytes),
             result_length=len(result_text),
@@ -295,7 +295,6 @@ def transcribe_segment_from_bytes(
             conversion_ms=round(conversion_time, 2),
             normalize_ms=round(normalize_time, 2),
             stt_ms=round(stt_time, 2),
-            collection_ms=round(collection_time, 2),
             total_ms=round(total_time, 2),
             # 비율
             stt_percentage=round((stt_time / total_time) * 100, 1)

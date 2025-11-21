@@ -90,7 +90,17 @@ class ColoredFormatter(logging.Formatter):
         record.levelname = colored_levelname
 
         formatter = logging.Formatter(log_fmt, datefmt="%Y-%m-%d %H:%M:%S")
-        return formatter.format(record)
+        formatted_msg = formatter.format(record)
+
+        # ✅ extra_data가 있으면 추가 출력
+        if hasattr(record, "extra_data") and record.extra_data:
+            extra_lines = []
+            for key, value in record.extra_data.items():
+                extra_lines.append(f"  {key}: {value}")
+            if extra_lines:
+                formatted_msg += "\n" + "\n".join(extra_lines)
+
+        return formatted_msg
 
 
 def setup_logging(use_json: bool = None) -> None:
