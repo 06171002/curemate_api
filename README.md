@@ -28,8 +28,6 @@
 
 ## 📂 프로젝트 구조
 
-<details>
-
 ```bash
 stt_api/
 ├── __init__.py                    # 패키지 초기화
@@ -78,7 +76,7 @@ stt_api/
     ├── batch_endpoints.py         # 배치 작업 API (POST /request, GET /result, SSE /stream-events)
     └── stream_endpoints.py        # 실시간 스트림 API (POST /create, WebSocket /ws)
 ```
-</details>
+
 
 ---------------------
 
