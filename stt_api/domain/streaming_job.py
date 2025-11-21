@@ -19,7 +19,10 @@ class StreamingJob:
         # (클라이언트가 16kHz, 16-bit, 30ms 청크를 보낸다고 가정)
         self.vad_processor = VADProcessor(
             sample_rate=constants.VAD_SAMPLE_RATE,
-            frame_duration_ms=constants.VAD_FRAME_DURATION_MS
+            frame_duration_ms=constants.VAD_FRAME_DURATION_MS,
+            vad_aggressiveness=constants.VAD_AGGRESSIVENESS,
+            min_speech_frames=constants.VAD_MIN_SPEECH_FRAMES,
+            max_silence_frames=constants.VAD_MAX_SILENCE_FRAMES
         )
 
         # (★핵심) 이 Job만의 대화록과 문맥
@@ -47,9 +50,6 @@ class StreamingJob:
                 job_id=self.job_id,
                 segment_bytes=len(segment_bytes)
             )
-            # (나중에 여기에 STT 로직 추가)
-            # (테스트를 위해 임시로 '감지됨' 텍스트 추가)
-            self.full_transcript.append(f"[감지된 세그먼트: {len(segment_bytes)} bytes]")
             return segment_bytes
         return False
 

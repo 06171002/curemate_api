@@ -34,9 +34,13 @@ class Settings(BaseSettings):
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     # ==================== STT 설정 ====================
-    STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
+    STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "base"
     STT_DEVICE_TYPE: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     STT_LANGUAGE: str = "ko"
+
+    # ✅ STT 성능 최적화 옵션
+    STT_BEAM_SIZE: int = 1  # 빔 서치 크기 (1=greedy, 5=default)
+    STT_COMPUTE_TYPE: str = "int8"  # int8, float16, float32
 
     # ==================== LLM 설정 ====================
     LLM_PROVIDER: Literal["ollama", "lmstudio"] = "lmstudio"
@@ -80,7 +84,8 @@ class Constants:
     VAD_SAMPLE_RATE = 16000
     VAD_FRAME_DURATION_MS = 30
     VAD_AGGRESSIVENESS = 3
-    VAD_MAX_SILENCE_FRAMES = 1
+    VAD_MIN_SPEECH_FRAMES = 3  # 최소 음성 길이 (90ms)
+    VAD_MAX_SILENCE_FRAMES = 5  # 침묵 감지 시간 (150ms)
 
     # 파일 형식
     ALLOWED_AUDIO_EXTENSIONS = ["mp3", "wav", "m4a", "ogg", "flac"]
@@ -88,6 +93,9 @@ class Constants:
     # Celery
     CELERY_TIMEZONE = "Asia/Seoul"
     CELERY_WORKER_CONCURRENCY = 4
+
+    # ✅ 스트리밍 파이프라인
+    STREAM_MAX_WORKERS = 3  # STT 병렬 처리 워커 수
 
 
 constants = Constants()

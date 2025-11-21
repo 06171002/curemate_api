@@ -17,7 +17,9 @@ class VADProcessor:
     def __init__(self,
                  sample_rate=constants.VAD_SAMPLE_RATE,
                  frame_duration_ms=constants.VAD_FRAME_DURATION_MS,
-                 vad_aggressiveness=constants.VAD_AGGRESSIVENESS):
+                 vad_aggressiveness=constants.VAD_AGGRESSIVENESS,
+                 min_speech_frames=3,
+                 max_silence_frames=5):
         if sample_rate not in [8000, 16000, 32000, 48000]:
             # ✅ CustomException 사용
             raise AudioFormatError(
@@ -32,10 +34,14 @@ class VADProcessor:
         self.frame_duration_ms = frame_duration_ms
         self.frame_bytes = int(sample_rate * (frame_duration_ms / 1000.0) * 2)  # 16-bit PCM
 
+        # ✅ 최적화된 파라미터
+        self.min_speech_frames = min_speech_frames
+        self.max_silence_frames = max_silence_frames
+
         self.speech_buffer = deque()
         self.in_speech = False
         self.silence_frames = 0
-        self.max_silence_frames = 10  # 약 600ms (30ms * 20) 침묵 시 세그먼트 종료
+        self.speech_frames = 0  # ✅ 음성 프레임 카운터 추가
 
         logger.debug(
             "VADProcessor 초기화",
@@ -48,11 +54,7 @@ class VADProcessor:
         오디오 청크(bytes)를 처리합니다.
         만약 음성 세그먼트가 종료되면, 해당 세그먼트(bytes)를 반환합니다.
         """
-
-        # VAD는 정확히 'frame_bytes' 크기의 조각만 처리할 수 있습니다.
-        # (클라이언트가 30ms 조각으로 보내야 함을 의미)
         if len(audio_chunk) != self.frame_bytes:
-            # ✅ CustomException 사용 (또는 경고만 로그)
             logger.warning(
                 "VAD 프레임 크기 불일치",
                 expected=self.frame_bytes,
@@ -64,26 +66,49 @@ class VADProcessor:
                 actual=f"{len(audio_chunk)} bytes"
             )
 
-
         is_speech = self.vad.is_speech(audio_chunk, self.sample_rate)
 
         if is_speech:
             # 말하고 있는 중
             self.speech_buffer.append(audio_chunk)
-            self.in_speech = True
+            self.speech_frames += 1
             self.silence_frames = 0
+
+            # ✅ 최소 음성 길이 충족 시 in_speech 활성화
+            if self.speech_frames >= self.min_speech_frames:
+                self.in_speech = True
         else:
             # 침묵
             if self.in_speech:
                 # 이전에 말을 하고 있었다면, 침묵 카운트 시작
                 self.silence_frames += 1
-                if self.silence_frames >= self.max_silence_frames:
-                    # 침묵이 충분히 지속됨 -> 세그먼트 종료
-                    self.in_speech = False
-                    self.silence_frames = 0
-
+                # ✅ 침묵이 짧으면 버퍼에 계속 추가 (끊김 방지)
+                if self.silence_frames < self.max_silence_frames:
+                    self.speech_buffer.append(audio_chunk)
+                else:
+                    # 세그먼트 종료
                     segment = b''.join(list(self.speech_buffer))
-                    self.speech_buffer.clear()
-                    return segment  # "음성 세그먼트" 반환
+                    self._reset()
+                    return segment
+            else:
+                # 음성 시작 전 침묵은 버리기
+                self.speech_buffer.clear()
 
         return None  # "아직 세그먼트 종료 안됨"
+
+    def _reset(self):
+        """상태 초기화"""
+        self.speech_buffer.clear()
+        self.in_speech = False
+        self.silence_frames = 0
+        self.speech_frames = 0
+
+    def flush(self):
+        """
+        ✅ 연결 종료 시 남은 버퍼 강제 반환
+        """
+        if len(self.speech_buffer) > 0 and self.speech_frames >= self.min_speech_frames:
+            segment = b''.join(list(self.speech_buffer))
+            self._reset()
+            return segment
+        return None

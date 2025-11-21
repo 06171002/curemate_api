@@ -37,14 +37,17 @@ def load_stt_model() -> None:
         "STT 모델 로드 시작",
         model_size=settings.STT_MODEL_SIZE,
         device=settings.STT_DEVICE_TYPE,
-        compute_type="int8"
+        compute_type=settings.STT_COMPUTE_TYPE
     )
 
     try:
         _model = WhisperModel(
             settings.STT_MODEL_SIZE,
             device=settings.STT_DEVICE_TYPE,
-            compute_type="int8"
+            compute_type=settings.STT_COMPUTE_TYPE,
+            # ✅ 추가 최적화 옵션
+            cpu_threads=4,  # CPU 스레드 수
+            num_workers=1  # 워커 수
         )
 
         logger.info(
@@ -251,53 +254,37 @@ def transcribe_segment_from_bytes(
     )
 
     try:
-        # ⏱️ 1. 변환 단계
-        conversion_start = time.perf_counter()
-        try:
-            audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
-        except Exception as e:
-            raise AudioFormatError(
-                expected="16-bit PCM",
-                actual=f"변환 실패: {str(e)}"
-            )
-        conversion_time = (time.perf_counter() - conversion_start) * 1000
-
-        # ⏱️ 2. 정규화 단계
-        normalize_start = time.perf_counter()
+        # 1. NumPy 변환
+        audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
         audio_float32 = audio_np.astype(np.float32) / 32768.0
-        normalize_time = (time.perf_counter() - normalize_start) * 1000
 
-        # ⏱️ 3. STT 실행 (가장 오래 걸림)
-        stt_start = time.perf_counter()
+        # 2. STT 실행 (최적화된 파라미터)
         segments, info = _model.transcribe(
             audio_float32,
             language=settings.STT_LANGUAGE,
             vad_filter=False,  # VAD는 이미 적용됨
             initial_prompt=initial_prompt,
-            beam_size=1,  # ✅ 5 → 1 (속도 향상)
-            best_of=1,
+            beam_size=settings.STT_BEAM_SIZE,  # ✅ 1로 설정 시 가장 빠름
+            best_of=1,  # ✅ 샘플링 횟수 최소화
+            temperature=0.0,  # ✅ 그리디 디코딩
+            compression_ratio_threshold=2.4,
+            log_prob_threshold=-1.0,
+            no_speech_threshold=0.6,
+            condition_on_previous_text=bool(initial_prompt),  # ✅ 문맥 활용
         )
 
-        # ⏱️ 4. 결과 수집
+        # 3. 결과 수집
         segment_texts = [seg.text.strip() for seg in segments]
         result_text = " ".join(segment_texts)
 
-        stt_time = (time.perf_counter() - stt_start) * 1000
         total_time = (time.perf_counter() - total_start) * 1000
 
-        # ✅ 상세 성능 로그
-        logger.info(  # debug → info로 변경
-            "세그먼트 STT 완료 (상세)",
+        logger.info(
+            "세그먼트 STT 완료",
             audio_size_bytes=len(audio_bytes),
             result_length=len(result_text),
             text_preview=result_text[:50],
-            # 단계별 시간
-            conversion_ms=round(conversion_time, 2),
-            normalize_ms=round(normalize_time, 2),
-            stt_ms=round(stt_time, 2),
-            total_ms=round(total_time, 2),
-            # 비율
-            stt_percentage=round((stt_time / total_time) * 100, 1)
+            total_ms=round(total_time, 2)
         )
 
         return result_text

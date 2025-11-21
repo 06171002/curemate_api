@@ -67,17 +67,25 @@ async def conversation_stream(websocket: WebSocket, job_id: str):
         "message": f"Job {job_id}에 성공적으로 연결되었습니다."
     })
 
-    # ✅ Pipeline 사용
-    pipeline = StreamPipeline(job)
+    # ✅ Pipeline 생성 및 시작
+    pipeline = StreamPipeline(job, max_workers=3)
+    await pipeline.start()
 
     try:
         # --- 실시간 VAD/STT 처리 루프 ---
         while True:
             audio_chunk = await websocket.receive_bytes()
 
-            # ✅ Pipeline로 처리
+            # ✅ Pipeline로 처리 (비동기로 결과 수신)
             async for result in pipeline.process_audio_chunk(audio_chunk):
-                await websocket.send_json(result)
+                try:
+                    await websocket.send_json(result)
+                except Exception as send_error:
+                    logger.warning(
+                        "결과 전송 실패 (클라이언트 연결 끊김)",
+                        error=str(send_error)
+                    )
+                    raise WebSocketDisconnect()
 
     except WebSocketDisconnect:
         logger.info("[WebSocket] 클라이언트 연결 끊김", job_id=job_id)
