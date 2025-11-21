@@ -1,6 +1,7 @@
 from faster_whisper import WhisperModel
 from typing import Optional, Generator
 import numpy as np
+import time
 
 from stt_api.core.config import settings
 from stt_api.core.logging_config import get_logger, LogContext
@@ -241,6 +242,8 @@ def transcribe_segment_from_bytes(
     """
     _ensure_model_loaded()
 
+    total_start = time.perf_counter()
+
     logger.debug(
         "세그먼트 STT 시작",
         audio_size_bytes=len(audio_bytes),
@@ -248,7 +251,8 @@ def transcribe_segment_from_bytes(
     )
 
     try:
-        # 1. 바이트를 int16 Numpy 배열로 변환
+        # ⏱️ 1. 변환 단계
+        conversion_start = time.perf_counter()
         try:
             audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
         except Exception as e:
@@ -256,11 +260,15 @@ def transcribe_segment_from_bytes(
                 expected="16-bit PCM",
                 actual=f"변환 실패: {str(e)}"
             )
+        conversion_time = (time.perf_counter() - conversion_start) * 1000
 
-        # 2. float32로 정규화
+        # ⏱️ 2. 정규화 단계
+        normalize_start = time.perf_counter()
         audio_float32 = audio_np.astype(np.float32) / 32768.0
+        normalize_time = (time.perf_counter() - normalize_start) * 1000
 
-        # 3. STT 실행 (문맥 전달)
+        # ⏱️ 3. STT 실행 (가장 오래 걸림)
+        stt_start = time.perf_counter()
         segments, info = _model.transcribe(
             audio_float32,
             language=settings.STT_LANGUAGE,
@@ -268,15 +276,29 @@ def transcribe_segment_from_bytes(
             initial_prompt=initial_prompt
         )
 
-        # 4. 결과 수집
+        # ⏱️ 4. 결과 수집
+        collection_start = time.perf_counter()
         segment_texts = [seg.text.strip() for seg in segments]
         result_text = " ".join(segment_texts)
+        collection_time = (time.perf_counter() - collection_start) * 1000
 
+        stt_time = (time.perf_counter() - stt_start) * 1000
+        total_time = (time.perf_counter() - total_start) * 1000
+
+        # ✅ 상세 성능 로그
         logger.debug(
-            "세그먼트 STT 완료",
+            "세그먼트 STT 완료 (상세)",
             audio_size_bytes=len(audio_bytes),
             result_length=len(result_text),
-            text_preview=result_text[:50]
+            text_preview=result_text[:50],
+            # 단계별 시간
+            conversion_ms=round(conversion_time, 2),
+            normalize_ms=round(normalize_time, 2),
+            stt_ms=round(stt_time, 2),
+            collection_ms=round(collection_time, 2),
+            total_ms=round(total_time, 2),
+            # 비율
+            stt_percentage=round((stt_time / total_time) * 100, 1)
         )
 
         return result_text

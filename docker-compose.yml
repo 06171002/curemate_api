@@ -15,7 +15,8 @@ services:
     build: .  # (현재 폴더의 Dockerfile을 사용)
     ports:
       - "8000:8000" # (Windows의 8000번 포트와 컨테이너 8000번 연결)
-    command: uvicorn stt_api.main:app --host 0.0.0.0 --port 8000 --reload
+    # Ping 간격을 60초로, 응답 대기 시간을 300초로 늘림
+    command: uvicorn stt_api.main:app --host 0.0.0.0 --port 8000 --reload --ws-ping-interval 60 --ws-ping-timeout 300
     volumes:
       - .:/app # (코드를 수정하면 자동으로 컨테이너에 반영)
     depends_on:

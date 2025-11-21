@@ -68,7 +68,7 @@ def on_open(ws):
                 time.sleep(0.1)
 
             print(f"[Streamer] 5. 오디오 전송 완료. 30초 후 연결 종료.")
-            time.sleep(200)
+            time.sleep(100)
             ws.close()
 
         except FileNotFoundError:
