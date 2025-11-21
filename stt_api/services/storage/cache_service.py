@@ -14,6 +14,12 @@ from typing import Dict, Any, Optional
 
 from stt_api.core.config import settings  # ✅ 설정 통합
 from stt_api.core.logging_config import get_logger
+from stt_api.core.exceptions import (
+    StorageException,
+    RedisConnectionError,
+    JobCreationError,
+    JobNotFoundException
+)
 
 logger = get_logger(__name__)
 
@@ -45,7 +51,9 @@ def connect_to_redis(max_retries=5, delay=2):
         except redis.exceptions.ConnectionError as e:
             logger.error("Redis 연결 실패", attempt=i + 1, max_retries=max_retries, error=str(e))
             if i == max_retries - 1:
-                return None, None
+                raise RedisConnectionError(
+                    details=f"최대 재시도 횟수 초과: {str(e)}"
+                )
             time.sleep(delay)
 
 # 연결 실패 시 Lazy Loading
@@ -68,7 +76,8 @@ JOB_KEY_PREFIX = "job:med:"
 def create_job(job_id: str, metadata: Dict[str, Any] = None) -> bool:
     """Redis에 작업 생성"""
     if not redis_client:
-        return False
+        # ✅ CustomException 사용
+        raise RedisConnectionError(details="Redis 클라이언트가 초기화되지 않음")
 
     key = f"{JOB_KEY_PREFIX}{job_id}"
     initial_data = {
@@ -85,13 +94,14 @@ def create_job(job_id: str, metadata: Dict[str, Any] = None) -> bool:
         return True
     except Exception as e:
         logger.error("작업 생성 실패", job_id=job_id, error=str(e))
-        return False
+        raise JobCreationError(job_id=job_id, reason=str(e))
 
 
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     """Redis에서 작업 조회"""
     if not redis_client:
-        return None
+        # ✅ CustomException 사용
+        raise RedisConnectionError(details="Redis 클라이언트가 초기화되지 않음")
 
     key = f"{JOB_KEY_PREFIX}{job_id}"
 
@@ -99,32 +109,41 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
         data_str = redis_client.get(key)
         if data_str:
             return json.loads(data_str)
-        return None
+        raise JobNotFoundException(job_id=job_id)
     except Exception as e:
-        print(f"[CacheService] 작업 조회 실패 (Job {job_id}): {e}")
-        return None
+        logger.error("작업 조회 실패", job_id=job_id, error=str(e))
+        raise StorageException(
+            message=f"작업 조회 중 오류 발생",
+            details={"job_id": job_id, "error": str(e)}
+        )
 
 
 def update_job(job_id: str, updates: Dict[str, Any]) -> bool:
     """Redis 작업 업데이트"""
     if not redis_client:
-        return False
+        raise RedisConnectionError(details="Redis 클라이언트가 초기화되지 않음")
 
     key = f"{JOB_KEY_PREFIX}{job_id}"
 
     try:
         current_data = get_job(job_id)
         if not current_data:
-            print(f"[CacheService] 업데이트할 작업 없음 (Job {job_id})")
-            return False
+            # ✅ CustomException 사용
+            raise JobNotFoundException(job_id=job_id)
 
         current_data.update(updates)
         redis_client.set(key, json.dumps(current_data))
         return True
 
+
+    except JobNotFoundException:
+        raise
     except Exception as e:
-        print(f"[CacheService] 작업 업데이트 실패 (Job {job_id}): {e}")
-        return False
+        logger.error("작업 업데이트 실패", job_id=job_id, error=str(e))
+        raise StorageException(
+            message=f"작업 업데이트 실패",
+            details={"job_id": job_id, "error": str(e)}
+        )
 
 
 # --- Pub/Sub 함수 ---
@@ -132,7 +151,7 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> bool:
 def publish_message(job_id: str, message_data: Dict[str, Any]):
     """Redis 채널에 메시지 발행"""
     if not redis_client:
-        return
+        raise RedisConnectionError(details="Redis 클라이언트가 초기화되지 않음")
 
     channel = f"job_events:{job_id}"
     message = json.dumps(message_data)

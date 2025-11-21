@@ -3,6 +3,7 @@ from stt_api.core.config import constants
 import webrtcvad
 from collections import deque
 from stt_api.core.logging_config import get_logger
+from patient_api.core.exceptions import AudioFormatError
 
 logger = get_logger(__name__)
 
@@ -18,7 +19,11 @@ class VADProcessor:
                  frame_duration_ms=constants.VAD_FRAME_DURATION_MS,
                  vad_aggressiveness=constants.VAD_AGGRESSIVENESS):
         if sample_rate not in [8000, 16000, 32000, 48000]:
-            raise ValueError("VAD 지원 sample_rate는 8k, 16k, 32k, 48k 중 하나여야 합니다.")
+            # ✅ CustomException 사용
+            raise AudioFormatError(
+                expected="8000, 16000, 32000, 48000 Hz",
+                actual=f"{sample_rate} Hz"
+            )
 
         self.vad = webrtcvad.Vad(vad_aggressiveness)
         self.sample_rate = sample_rate
@@ -32,6 +37,12 @@ class VADProcessor:
         self.silence_frames = 0
         self.max_silence_frames = 10  # 약 600ms (30ms * 20) 침묵 시 세그먼트 종료
 
+        logger.debug(
+            "VADProcessor 초기화",
+            sample_rate=sample_rate,
+            frame_bytes=self.frame_bytes
+        )
+
     def process_chunk(self, audio_chunk: bytes):
         """
         오디오 청크(bytes)를 처리합니다.
@@ -41,8 +52,18 @@ class VADProcessor:
         # VAD는 정확히 'frame_bytes' 크기의 조각만 처리할 수 있습니다.
         # (클라이언트가 30ms 조각으로 보내야 함을 의미)
         if len(audio_chunk) != self.frame_bytes:
-            logger.error("오류: VAD는 정확히 2 바이트의 청크만 처리할 수 있습니다.")
-            return None
+            # ✅ CustomException 사용 (또는 경고만 로그)
+            logger.warning(
+                "VAD 프레임 크기 불일치",
+                expected=self.frame_bytes,
+                actual=len(audio_chunk)
+            )
+            # 선택: 예외 발생 또는 None 반환
+            raise AudioFormatError(
+                expected=f"{self.frame_bytes} bytes",
+                actual=f"{len(audio_chunk)} bytes"
+            )
+
 
         is_speech = self.vad.is_speech(audio_chunk, self.sample_rate)
 

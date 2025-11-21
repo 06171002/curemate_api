@@ -4,6 +4,11 @@ import sys
 from .database_service import db_service
 from . import cache_service
 from stt_api.core.logging_config import get_logger
+from stt_api.core.exceptions import (
+    StorageException,
+    JobNotFoundException,
+    JobCreationError
+)
 
 logger = get_logger(__name__)
 
@@ -64,14 +69,17 @@ class JobManager:
 
             if not db_success:
                 logger.error("DB 작업 생성 실패", job_id=job_id)
-                return False
+                # ✅ CustomException 사용
+                raise JobCreationError(
+                    job_id=job_id,
+                    reason="DB 작업 생성 실패"
+                )
 
-            # 2. Redis 캐시 생성 (Secondary, 실패해도 치명적이지 않음)
-            cache_success = self.cache.create_job(job_id, metadata)
-
-            if not cache_success:
-                logger.warning("Redis 캐시 생성 실패", job_id=job_id)
-                self.db.log_error(job_id, "job_manager", "Redis 캐시 생성 실패")
+            try:
+                self.cache.create_job(job_id, metadata)
+            except Exception as cache_error:
+                logger.warning("Redis 캐시 생성 실패", job_id=job_id, error=str(cache_error))
+                self.db.log_error(job_id, "job_manager", f"Redis 캐시 생성 실패: {cache_error}")
 
             logger.info(
                 "작업 생성 완료",
@@ -80,15 +88,13 @@ class JobManager:
             )
             return True
 
+
+        except JobCreationError:
+            raise  # 재발생
         except Exception as e:
-            logger.error(
-                "작업 생성 중 오류",
-                job_id=job_id,
-                exc_info=True,
-                error=str(e)
-            )
+            logger.error("작업 생성 중 오류", job_id=job_id, exc_info=True)
             self.db.log_error(job_id, "job_manager", str(e))
-            return False
+            raise JobCreationError(job_id=job_id, reason=str(e))
 
     # ==================== 작업 조회 ====================
 
@@ -100,25 +106,39 @@ class JobManager:
             작업 데이터 또는 None
         """
         try:
-            # 1. Redis 캐시에서 먼저 조회 (빠름)
-            cached_job = self.cache.get_job(job_id)
-            if cached_job:
-                logger.info("캐시 히트", job_id=job_id)
-                return cached_job
+            # Redis 캐시 조회
+            try:
+                cached_job = self.cache.get_job(job_id)
+                if cached_job:
+                    logger.debug("캐시 히트", job_id=job_id)
+                    return cached_job
+            except Exception as cache_error:
+                logger.warning("캐시 조회 실패, DB로 폴백", job_id=job_id)
 
-            # 2. DB에서 조회 (폴백)
-            logger.info("캐시 미스, DB 조회", job_id=job_id)
+            # DB 조회 (폴백)
+            logger.debug("캐시 미스, DB 조회", job_id=job_id)
             db_job = self.db.get_stt_job(job_id)
 
-            if db_job:
-                # DB에서 가져온 데이터를 Redis에 캐싱 (다음 조회 최적화)
+            if not db_job:
+                # ✅ CustomException 사용
+                raise JobNotFoundException(job_id=job_id)
+
+            # DB 데이터를 Redis에 캐싱
+            try:
                 self._update_cache_from_db(job_id, db_job)
+            except Exception:
+                pass  # 캐싱 실패는 무시
 
             return db_job
 
+        except JobNotFoundException:
+            raise  # 재발생
         except Exception as e:
-            logger.error("작업 조회 실패",job_id=job_id,exc_info=True,message=sys.stderr)
-            return None
+            logger.error("작업 조회 실패", job_id=job_id, exc_info=True)
+            raise StorageException(
+                message=f"작업 조회 중 오류",
+                details={"job_id": job_id, "error": str(e)}
+            )
 
     # ==================== 작업 상태 업데이트 ====================
 
@@ -156,8 +176,11 @@ class JobManager:
             )
 
             if not db_success:
-                logger.error("DB 상태 업데이트 실패", job_id=job_id,exc_info=True,message=sys.stderr)
-                return False
+                logger.error("DB 상태 업데이트 실패", job_id=job_id)
+                raise StorageException(
+                    message="DB 상태 업데이트 실패",
+                    details={"job_id": job_id, "status": status.value}
+                )
 
             # 2. Redis 캐시 업데이트 (Secondary, 선택적)
             cache_data = {
@@ -172,19 +195,24 @@ class JobManager:
             if error_message:
                 cache_data["error_message"] = error_message
 
-            cache_success = self.cache.update_job(job_id, cache_data)
-
-            if not cache_success:
+            try:
+                self.cache.update_job(job_id, cache_data)
+            except Exception as cache_error:
                 logger.warning("Redis 캐시 업데이트 실패", job_id=job_id)
-                # Redis 실패는 치명적이지 않으므로 경고만
 
             logger.info("상태 업데이트", job_id=job_id, job_status= status.value)
             return True
 
+
+        except StorageException:
+            raise
         except Exception as e:
-            logger.error("상태 업데이트 중 오류", job_id=job_id, message=sys.stderr)
+            logger.error("상태 업데이트 중 오류", job_id=job_id, exc_info=True)
             self.db.log_error(job_id, "job_manager", str(e))
-            return False
+            raise StorageException(
+                message=f"상태 업데이트 실패",
+                details={"job_id": job_id, "error": str(e)}
+            )
 
     # ==================== Pub/Sub (Redis 전용) ====================
 
