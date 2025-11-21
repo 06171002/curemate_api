@@ -3,7 +3,7 @@ from stt_api.core.config import constants
 import webrtcvad
 from collections import deque
 from stt_api.core.logging_config import get_logger
-from patient_api.core.exceptions import AudioFormatError
+from stt_api.core.exceptions import AudioFormatError
 
 logger = get_logger(__name__)
 

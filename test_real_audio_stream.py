@@ -65,10 +65,10 @@ def on_open(ws):
                 ws.send(chunk, websocket.ABNF.OPCODE_BINARY)
 
                 # (중요) 실제 30ms 간격으로 전송 (실시간 시뮬레이션)
-                time.sleep(FRAME_DURATION_MS / 1000.0)
+                time.sleep(0.1)
 
             print(f"[Streamer] 5. 오디오 전송 완료. 30초 후 연결 종료.")
-            time.sleep(150)
+            time.sleep(200)
             ws.close()
 
         except FileNotFoundError:
@@ -103,7 +103,7 @@ try:
                                 on_message=on_message,
                                 on_error=on_error,
                                 on_close=on_close)
-    ws.run_forever()
+    ws.run_forever(ping_interval=0, ping_timeout=None)
 
 except requests.exceptions.ConnectionError:
     print(f"🔴🔴🔴 FastAPI 서버({API_BASE_URL}) 연결 실패 🔴🔴🔴")

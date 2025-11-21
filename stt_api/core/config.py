@@ -80,7 +80,7 @@ class Constants:
     VAD_SAMPLE_RATE = 16000
     VAD_FRAME_DURATION_MS = 30
     VAD_AGGRESSIVENESS = 3
-    VAD_MAX_SILENCE_FRAMES = 10
+    VAD_MAX_SILENCE_FRAMES = 1
 
     # 파일 형식
     ALLOWED_AUDIO_EXTENSIONS = ["mp3", "wav", "m4a", "ogg", "flac"]
