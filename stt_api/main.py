@@ -13,7 +13,7 @@ from stt_api.services.llm import llm_service
 from stt_api.services.stt import whisper_service
 
 # 라우터
-from stt_api.api import batch_endpoints, stream_endpoints
+from stt_api.api import batch_endpoints
 
 # 설정
 from stt_api.core.config import settings
@@ -21,6 +21,11 @@ from stt_api.core.config import settings
 # ✅ 로거 인스턴스 생성
 logger = get_logger(__name__)
 
+# ✅ 엔진별 라우터 선택
+if settings.STT_ENGINE == "whisperlivekit":
+    from stt_api.api import stream_endpoints_whisperlive as stream_endpoints
+else:
+    from stt_api.api import stream_endpoints
 
 # ==================== Lifespan 이벤트 ====================
 
