@@ -30,7 +30,8 @@ class StreamPipeline:
         self.metrics = {
             "total_vad_time": 0.0,
             "total_stt_time": 0.0,
-            "total_segments": 0
+            "total_segments": 0,
+            "pending_segments": 0
         }
 
         # ✅ 백그라운드 STT 워커 시작

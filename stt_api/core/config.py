@@ -34,7 +34,7 @@ class Settings(BaseSettings):
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     # ==================== STT 설정 ====================
-    STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "base"
+    STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
     STT_DEVICE_TYPE: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     STT_LANGUAGE: str = "ko"
 
