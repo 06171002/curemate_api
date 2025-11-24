@@ -34,6 +34,7 @@ class Settings(BaseSettings):
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     # ==================== STT 설정 ====================
+    STT_ENGINE: Literal["faster-whisper", "whisperlivekit"] = "whisperlivekit"
     STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
     STT_DEVICE_TYPE: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     STT_LANGUAGE: str = "ko"
@@ -41,6 +42,8 @@ class Settings(BaseSettings):
     # ✅ STT 성능 최적화 옵션
     STT_BEAM_SIZE: int = 1  # 빔 서치 크기 (1=greedy, 5=default)
     STT_COMPUTE_TYPE: str = "int8"  # int8, float16, float32
+
+    WHISPERLIVE_USE_DIARIZATION: bool = False
 
     # ==================== LLM 설정 ====================
     LLM_PROVIDER: Literal["ollama", "lmstudio"] = "lmstudio"
