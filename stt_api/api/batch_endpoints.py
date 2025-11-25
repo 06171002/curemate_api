@@ -92,24 +92,64 @@ def get_conversation_result(job_id: str):
 @router.get("/api/v1/conversation/stream-events/{job_id}")
 async def stream_events(job_id: str, request: Request):
     """
-    (SSE) job_id에 해당하는 작업의 STT 세그먼트 및 최종 요약을
-    실시간으로 스트리밍합니다.
+    ✅ 개선된 SSE 스트리밍:
+    1. 연결 시 이미 처리된 세그먼트를 먼저 전송
+    2. 이후 실시간 이벤트 구독
     """
-    # ✅ JobManager로 존재 확인
-    job_exists = job_manager.get_job(job_id)
-
-    if not job_exists:
+    # 1. Job 존재 확인
+    job = job_manager.get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job ID를 찾을 수 없습니다.")
 
     async def event_generator():
-        """
-        Redis Pub/Sub을 구독하고 메시지를 SSE 형식으로 'yield'합니다.
-        """
         try:
-            async for message_data in job_manager.subscribe_events(job_id):
-                # 클라이언트 연결 확인
+            # ✅ STEP 1: 과거 세그먼트 전송 (DB에서 조회)
+            past_segments = job_manager.get_segments(job_id)
+
+            logger.info(
+                "[SSE] 과거 세그먼트 전송 시작",
+                job_id=job_id,
+                count=len(past_segments)
+            )
+
+            for segment in past_segments:
                 if await request.is_disconnected():
-                    logger.info("[SSE] 클라이언트 연결 끊김", job_id=job_id)
+                    logger.info("[SSE] 클라이언트 연결 끊김 (과거 데이터 전송 중)")
+                    return
+
+                yield {
+                    "event": "transcript_segment",
+                    "data": json.dumps({
+                        "type": "transcript_segment",
+                        "text": segment["segment_text"],
+                        "segment_number": segment.get("segment_number", 0),
+                        "is_historical": True  # ✅ 과거 데이터 표시
+                    })
+                }
+
+            # ✅ STEP 2: 현재 상태 확인 (이미 완료된 경우 final_summary 전송)
+            current_status = job.get("status", "").upper()
+
+            if current_status == "COMPLETED":
+                logger.info("[SSE] 작업이 이미 완료됨, final_summary 전송")
+
+                yield {
+                    "event": "final_summary",
+                    "data": json.dumps({
+                        "type": "final_summary",
+                        "summary": job.get("structured_summary", {}),
+                        "segment_count": len(past_segments),
+                        "is_historical": True
+                    })
+                }
+                return  # 스트림 종료
+
+            # ✅ STEP 3: 실시간 이벤트 구독 (진행 중인 경우)
+            logger.info("[SSE] 실시간 이벤트 구독 시작", job_id=job_id)
+
+            async for message_data in job_manager.subscribe_events(job_id):
+                if await request.is_disconnected():
+                    logger.info("[SSE] 클라이언트 연결 끊김 (실시간 구독 중)")
                     break
 
                 event_type = message_data.get("type", "message")
@@ -122,7 +162,7 @@ async def stream_events(job_id: str, request: Request):
 
                 # 최종 요약 수신 시 스트림 종료
                 if event_type == "final_summary":
-                    logger.info("[SSE] 최종 요약 전송 완료, 스트림 종료", job_id=job_id)
+                    logger.info("[SSE] 최종 요약 전송 완료, 스트림 종료")
                     break
 
         except Exception as e:
