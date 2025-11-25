@@ -3,6 +3,22 @@ import sys
 import shutil
 import os
 from whisperlivekit import TranscriptionEngine, AudioProcessor
+import torch
+import numpy as np
+import random
+
+# 시드 고정
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # CPU 연산 결정성 보장
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+set_seed(42)
+
 
 
 # ================= 설정 =================
@@ -10,7 +26,6 @@ AUDIO_FILE_PATH = "temp_audio/test.mp3"
 MODEL_SIZE = "large-v3"
 LANGUAGE = "ko"
 USE_DIARIZATION = False
-
 
 # ========================================
 
