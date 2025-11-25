@@ -76,7 +76,7 @@ class StreamPipeline:
                     if segment_data is None:  # 종료 신호
                         break
 
-                    segment_bytes, segment_num = segment_data
+                    segment_bytes, segment_num, segment_timestamp = segment_data
 
                     # STT 처리
                     stt_start = time.perf_counter()
@@ -96,9 +96,10 @@ class StreamPipeline:
                     await self.result_queue.put({
                         "segment_number": segment_num,
                         "text": segment_text,
-                        "duration_ms": stt_duration
+                        "duration_ms": stt_duration,
+                        "absolute_timestamp": segment_timestamp,  # ✅ 절대 시간
+                        "relative_time_sec": self.job.get_relative_time(segment_timestamp)  # ✅ 상대 시간
                     })
-
                     logger.debug(
                         "STT 워커 처리 완료",
                         segment_number=segment_num,
@@ -138,19 +139,25 @@ class StreamPipeline:
         """
         # ✅ VAD/버퍼로 세그먼트 감지
         processing_start = time.perf_counter()
-        segment_bytes = self.job.process_audio_chunk(audio_chunk)
+        # ✅ process_audio_chunk가 이제 (bytes, timestamp) 튜플 반환
+        result = self.job.process_audio_chunk(audio_chunk)
         processing_duration = (time.perf_counter() - processing_start) * 1000
 
         # 메트릭에 VAD 시간 기록 (VAD 사용 시) 또는 버퍼 처리 시간 기록
         if self.use_vad:
             self.metrics["total_vad_time"] += processing_duration
 
-        if segment_bytes:
+        if result:
+            segment_bytes, segment_timestamp = result
             self.segment_count += 1
             self.metrics["pending_segments"] += 1
 
-            # ✅ STT 큐에 추가 (비동기로 처리됨)
-            await self.processing_queue.put((segment_bytes, self.segment_count))
+            # ✅ 타임스탬프 포함하여 큐에 추가
+            await self.processing_queue.put((
+                segment_bytes,
+                self.segment_count,
+                segment_timestamp  # ✅ 타임스탬프 전달
+            ))
 
             logger.info(
                 "세그먼트 감지, STT 큐 추가",
@@ -183,11 +190,14 @@ class StreamPipeline:
                         self.job.current_prompt_context += " " + segment_text
                         self.job.full_transcript.append(segment_text)
 
+                        # ✅ 타임스탬프 정보 포함하여 반환
                         yield {
                             "type": "transcript_segment",
                             "text": segment_text,
                             "segment_number": result["segment_number"],
                             "processing_time_ms": round(result["duration_ms"], 2),
+                            "absolute_timestamp": result["absolute_timestamp"],  # ✅ 절대 시간
+                            "relative_time_sec": round(result["relative_time_sec"], 3),  # ✅ 상대 시간
                             "stt_engine": self.stt_engine
                         }
 

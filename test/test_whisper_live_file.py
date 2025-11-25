@@ -22,7 +22,7 @@ set_seed(42)
 
 
 # ================= 설정 =================
-AUDIO_FILE_PATH = "temp_audio/test.mp3"
+AUDIO_FILE_PATH = "../temp_audio/test.mp3"
 MODEL_SIZE = "large-v3"
 LANGUAGE = "ko"
 USE_DIARIZATION = False

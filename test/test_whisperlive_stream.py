@@ -15,7 +15,7 @@ import os
 
 # --- 설정 ---
 HOST_IP = "127.0.0.1"
-TEST_AUDIO_FILE = "temp_audio/test.mp3"
+TEST_AUDIO_FILE = "../temp_audio/test.mp3"
 
 
 # 4KB 단위로 끊어서 전송 (일반적인 스트리밍 방식)

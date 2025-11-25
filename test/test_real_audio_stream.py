@@ -11,7 +11,7 @@ HOST_IP = "127.0.0.1"
 # (VAD가 요구하는 프레임)
 FRAME_DURATION_MS = 30
 # (테스트할 오디오 파일 경로)
-TEST_AUDIO_FILE = "temp_audio/test3.mp3"  # (★ 본인의 MP3 파일 경로로 수정!)
+TEST_AUDIO_FILE = "../temp_audio/test4.mp3"  # (★ 본인의 MP3 파일 경로로 수정!)
 # --------------------
 
 API_BASE_URL = f"http://{HOST_IP}:8000"

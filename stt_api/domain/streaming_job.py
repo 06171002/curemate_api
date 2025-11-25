@@ -1,4 +1,5 @@
 import uuid
+import time
 from typing import List, Dict, Optional
 from stt_api.core.config import settings, constants
 from stt_api.core.logging_config import get_logger
@@ -16,6 +17,8 @@ class StreamingJob:
     def __init__(self, metadata: Dict = None):
         self.job_id: str = str(uuid.uuid4())
         self.metadata: Dict = metadata or {}
+
+        self.start_time: float = time.time()
 
         # ✅ STT 엔진에 따라 다른 초기화
         self.use_vad = settings.STT_ENGINE == "faster-whisper"
@@ -56,7 +59,7 @@ class StreamingJob:
         self.current_prompt_context: str = ""
         self.status: str = "processing"
 
-    def process_audio_chunk(self, audio_chunk: bytes) -> Optional[bytes]:
+    def process_audio_chunk(self, audio_chunk: bytes) -> Optional[tuple]:
         """
         오디오 청크 처리
 
@@ -67,6 +70,8 @@ class StreamingJob:
             - faster-whisper: VAD가 감지한 세그먼트 (없으면 None)
             - WhisperLiveKit: 버퍼가 임계값을 넘으면 버퍼 내용 반환
         """
+        chunk_timestamp = time.time()
+
         if self.use_vad:
             # --- faster-whisper 모드: VAD 처리 ---
             segment_bytes = self.vad_processor.process_chunk(audio_chunk)
@@ -74,9 +79,10 @@ class StreamingJob:
                 logger.debug(
                     "VAD 음성 세그먼트 감지",
                     job_id=self.job_id,
+                    timestamp=chunk_timestamp,
                     segment_bytes=len(segment_bytes)
                 )
-                return segment_bytes
+                return segment_bytes, chunk_timestamp
             return None
 
         else:
@@ -91,23 +97,27 @@ class StreamingJob:
                 logger.debug(
                     "버퍼 임계값 도달, 세그먼트 반환",
                     job_id=self.job_id,
+                    timestamp=chunk_timestamp,
                     segment_bytes=len(segment_bytes)
                 )
-                return segment_bytes
+                return segment_bytes, chunk_timestamp
 
             return None
 
-    def flush_buffer(self) -> Optional[bytes]:
+    def flush_buffer(self) -> Optional[tuple]:
         """
         ✅ 연결 종료 시 남은 버퍼 강제 반환
 
         Returns:
             남은 버퍼 내용 (없으면 None)
         """
+        flush_timestamp = time.time()
         if self.use_vad:
             # faster-whisper: VAD 버퍼 flush
             if self.vad_processor:
-                return self.vad_processor.flush()
+                segment_bytes = self.vad_processor.flush()
+                if segment_bytes:
+                    return segment_bytes, flush_timestamp
         else:
             # WhisperLiveKit: 오디오 버퍼 flush
             if len(self.audio_buffer) > 0:
@@ -119,9 +129,21 @@ class StreamingJob:
                     job_id=self.job_id,
                     segment_bytes=len(segment_bytes)
                 )
-                return segment_bytes
+                return segment_bytes, flush_timestamp
 
         return None
+
+    def get_relative_time(self, absolute_timestamp: float) -> float:
+        """
+        ✅ 절대 타임스탬프를 상대 시간으로 변환
+
+        Args:
+            absolute_timestamp: time.time() 값
+
+        Returns:
+            작업 시작 이후 경과 시간 (초)
+        """
+        return absolute_timestamp - self.start_time
 
     def get_full_transcript(self) -> str:
         """전체 대화록 반환"""

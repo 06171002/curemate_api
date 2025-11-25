@@ -2,7 +2,7 @@
 
 실시간 STT(Speech-to-Text) 및 요약 API 서버입니다.
 
-이 프로젝트는 `FastAPI`, `Celery`, `Redis`, `faster-whisper`를 Docker Compose로 실행하고, `Ollama`는 로컬 호스트(Host) PC에서 실행합니다.
+이 프로젝트는 `FastAPI`, `Celery`, `Redis`, `faster-whisper`를 Docker Compose로 실행하고, `Ollama` 또는 `LM Studio`(LLM 서버)는 로컬 호스트(Host) PC에서 실행합니다.
 
 ---
 
@@ -11,12 +11,39 @@
 ### 1. 사전 준비 (총 3가지)
 
 1.  **Docker Desktop**을 설치하고 실행해야 합니다.
-2.  **Ollama**를 **호스트 PC(Windows/Mac)에 직접 설치**해야 합니다.
-3.  Ollama에서 사용할 모델(`gemma3`)을 미리 받아야 합니다.
-    ```bash
-    ollama pull gemma3
-    ```
+2.  **LLM 서버 준비 (택 1)**
+    * 이 프로젝트는 로컬 LLM을 사용하여 요약을 수행합니다. **Ollama** 또는 **LM Studio** 중 하나를 선택하여 설치하세요.
 
+    #### [옵션 A] Ollama 사용 시
+    1.  **Ollama**를 설치합니다.
+    2.  사용할 모델(`gemma3` 등)을 다운로드합니다.
+        ```bash
+        ollama pull gemma3
+        ```
+
+    #### [옵션 B] LM Studio 사용 시
+    1.  **LM Studio**를 설치하고 실행합니다.
+    2.  원하는 모델(예: `gemma-2-9b-it`, `llama-3-8b-instruct`)을 검색하여 다운로드합니다.
+    3.  **Local Server** 탭(좌측 `<->` 아이콘)으로 이동합니다.
+    4.  상단 중앙의 모델 선택 창에서 다운로드한 모델을 로드(Load)합니다.
+    5.  우측 설정 패널에서 **Server Port**가 `1234`인지 확인합니다.
+    6.  **"Start Server"** 버튼을 눌러 서버를 시작합니다.
+3. 실행 설정 (.env)
+
+프로젝트 루트의 `.env` 파일을 수정하여 사용할 LLM을 결정합니다. (파일이 없다면 생성하세요)
+
+```ini
+# --- LLM 선택 (ollama 또는 lmstudio) ---
+LLM_PROVIDER=lmstudio
+
+# --- LM Studio 설정 (기본값) ---
+# Docker 컨테이너에서 호스트의 LM Studio로 접속하기 위한 주소
+LMSTUDIO_BASE_URL=[http://host.docker.internal:1234/v1](http://host.docker.internal:1234/v1)
+
+# --- Ollama 설정 ---
+OLLAMA_BASE_URL=[http://host.docker.internal:11434](http://host.docker.internal:11434)
+OLLAMA_MODEL_NAME=gemma3
+```
 ### 2. 프로젝트 클론
 
 ### 3. 실행
