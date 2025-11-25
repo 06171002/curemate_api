@@ -1,7 +1,7 @@
 """
 WhisperLiveKit 전용 WebSocket 엔드포인트 (버그 수정)
 
-FrontData 객체 처리 추가
+FrontData 객체 처리 추가 및 상태 공유 문제 해결
 """
 
 import asyncio
@@ -17,32 +17,8 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-# ✅ 전역 WhisperLiveKit 엔진 (한 번만 로드)
-_whisperlive_engine = None
-
-
-async def get_whisperlive_engine():
-    """전역 WhisperLiveKit 엔진 가져오기 (Lazy Loading)"""
-    global _whisperlive_engine
-
-    if _whisperlive_engine is None:
-        logger.info(
-            "WhisperLiveKit 엔진 로드 시작",
-            model_size=settings.STT_MODEL_SIZE,
-            language=settings.STT_LANGUAGE
-        )
-
-        _whisperlive_engine = TranscriptionEngine(
-            model=settings.STT_MODEL_SIZE,
-            language=settings.STT_LANGUAGE,
-            diarization=settings.WHISPERLIVE_USE_DIARIZATION,
-            backend="faster_whisper",
-            device=settings.STT_DEVICE_TYPE
-        )
-
-        logger.info("WhisperLiveKit 엔진 로드 완료")
-
-    return _whisperlive_engine
+# ❌ 전역 엔진 제거 (Stateful한 엔진을 공유하면 텐서 크기 불일치 발생)
+# _whisperlive_engine = None
 
 
 @router.post("/api/v1/stream/create", status_code=201)
@@ -64,7 +40,6 @@ def create_stream_job():
     }
 
 
-# ✅ FrontData/TranscriptionResult 안전하게 처리하는 헬퍼 함수
 def extract_text_from_result(result) -> str:
     """
     WhisperLiveKit result 객체에서 텍스트 추출
@@ -79,15 +54,13 @@ def extract_text_from_result(result) -> str:
         if isinstance(text, str) and text.strip():
             return text.strip()
 
-    # 2. lines 속성 확인 (FrontData) ⭐ 핵심!
+    # 2. lines 속성 확인 (FrontData)
     if hasattr(result, 'lines'):
         lines = result.lines
         if isinstance(lines, list) and len(lines) > 0:
-            # lines는 딕셔너리 리스트일 수 있음
             texts = []
             for line in lines:
                 if isinstance(line, dict):
-                    # {'text': '...', 'start': 0.0, 'end': 1.0} 형태
                     if 'text' in line:
                         texts.append(line['text'])
                 elif isinstance(line, str):
@@ -112,22 +85,6 @@ def extract_text_from_result(result) -> str:
         elif isinstance(content, dict) and 'text' in content:
             return content['text'].strip()
 
-    # 5. 디버깅: 실제 값 출력
-    if hasattr(result, '__dict__'):
-        result_dict = result.__dict__
-
-        # ✅ 디버깅 로그 (한 번만 출력)
-        if not hasattr(extract_text_from_result, '_debug_printed'):
-            logger.info(
-                "FrontData 상세 구조 (첫 결과만)",
-                lines=result_dict.get('lines'),
-                buffer_transcription=result_dict.get('buffer_transcription'),
-                status=result_dict.get('status'),
-                error=result_dict.get('error')
-            )
-            extract_text_from_result._debug_printed = True
-
-    # 6. 실패 (경고는 최소화)
     return ""
 
 
@@ -157,17 +114,32 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
         "message": f"Job {job_id}에 연결되었습니다."
     })
 
-    # 3. WhisperLiveKit 엔진 가져오기
+    # 3. WhisperLiveKit 엔진 생성 (✅ 연결마다 독립적인 인스턴스 생성)
+    #    전역 엔진을 사용하면 KV Cache 충돌로 RuntimeError가 발생합니다.
     try:
-        engine = await get_whisperlive_engine()
+        logger.info(
+            "WhisperLiveKit 엔진 초기화 (개별 연결용)",
+            job_id=job_id,
+            model=settings.STT_MODEL_SIZE
+        )
+
+        # 엔진 인스턴스 생성
+        engine = TranscriptionEngine(
+            model=settings.STT_MODEL_SIZE,
+            language=settings.STT_LANGUAGE,
+            diarization=settings.WHISPERLIVE_USE_DIARIZATION,
+            backend="faster_whisper",
+            device=settings.STT_DEVICE_TYPE
+        )
+
     except Exception as e:
-        error_msg = f"엔진 로드 실패: {str(e)}"
-        logger.error("엔진 로드 실패", exc_info=True, error=str(e))
+        error_msg = f"엔진 초기화 실패: {str(e)}"
+        logger.error("엔진 초기화 실패", exc_info=True, error=str(e))
         await websocket.send_json({"type": "error", "message": error_msg})
         await websocket.close(code=1011, reason=error_msg)
         return
 
-    # 4. AudioProcessor 생성 (이 연결 전용)
+    # 4. AudioProcessor 생성
     audio_processor = AudioProcessor(transcription_engine=engine)
     result_generator = await audio_processor.create_tasks()
 
@@ -175,12 +147,11 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
     transcript_segments = []
     segment_count = 0
 
-    # ✅ 백그라운드: 결과 수집 & WebSocket 전송 (수정됨)
+    # ✅ 백그라운드: 결과 수집 & WebSocket 전송
     async def collect_and_send_results():
         nonlocal segment_count
         try:
             async for result in result_generator:
-                # ✅ 안전한 텍스트 추출
                 text = extract_text_from_result(result)
 
                 if not text:
@@ -196,7 +167,6 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
                     text_preview=text[:50]
                 )
 
-                # ✅ 클라이언트에게 즉시 전송
                 try:
                     await websocket.send_json({
                         "type": "transcript_segment",
@@ -221,13 +191,10 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
 
         chunk_count = 0
         while True:
-            # 오디오 청크 수신
             audio_chunk = await websocket.receive_bytes()
             chunk_count += 1
 
-            # ✅ 에러 핸들링 추가
             try:
-                # WhisperLiveKit에 전달
                 await audio_processor.process_audio(audio_chunk)
             except Exception as process_error:
                 logger.warning(
@@ -235,7 +202,6 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
                     chunk_number=chunk_count,
                     error=str(process_error)
                 )
-                # 계속 진행 (치명적 오류 아님)
 
     except WebSocketDisconnect:
         logger.info("클라이언트 연결 끊김", job_id=job_id, chunks_received=chunk_count)
@@ -249,8 +215,8 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
         # 7. 정리 작업
         logger.info("최종 처리 시작", job_id=job_id)
 
-        # ✅ 결과 수집 태스크 종료 대기 (최대 10초)
         try:
+            # 10초 대기 (남은 버퍼 처리)
             await asyncio.wait_for(result_task, timeout=10.0)
         except asyncio.TimeoutError:
             logger.warning("결과 수집 타임아웃", job_id=job_id)
@@ -259,6 +225,10 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
                 await result_task
             except asyncio.CancelledError:
                 pass
+
+        # 엔진 정리 (메모리 해제 유도)
+        del audio_processor
+        del engine
 
         # 8. 전체 대화록 생성
         full_transcript = " ".join(transcript_segments)
@@ -271,15 +241,6 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
                 transcript="",
                 error_message="대화 내용 없음"
             )
-
-            try:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "대화 내용이 없습니다"
-                })
-            except:
-                pass
-
             return
 
         # STT 완료
@@ -309,7 +270,6 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
 
             logger.info("요약 완료", job_id=job_id)
 
-            # 최종 결과 전송
             try:
                 await websocket.send_json({
                     "type": "final_summary",
@@ -317,7 +277,7 @@ async def whisperlive_stream(websocket: WebSocket, job_id: str):
                     "total_segments": segment_count
                 })
             except:
-                pass  # 연결이 끊긴 경우 무시
+                pass
 
         except Exception as e:
             error_msg = f"요약 실패: {str(e)}"

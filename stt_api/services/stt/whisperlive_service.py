@@ -44,7 +44,7 @@ def load_stt_model() -> None:
             model=settings.STT_MODEL_SIZE,
             language=settings.STT_LANGUAGE,
             diarization=settings.WHISPERLIVE_USE_DIARIZATION,
-            backend="faster_whisper",
+            backend="openai_whisper",
             device=settings.STT_DEVICE_TYPE
         )
 

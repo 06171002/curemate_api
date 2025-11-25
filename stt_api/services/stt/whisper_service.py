@@ -46,7 +46,7 @@ def load_stt_model() -> None:
             device=settings.STT_DEVICE_TYPE,
             compute_type=settings.STT_COMPUTE_TYPE,
             # ✅ 추가 최적화 옵션
-            cpu_threads=4,  # CPU 스레드 수
+            cpu_threads=8,  # CPU 스레드 수
             num_workers=1  # 워커 수
         )
 
@@ -267,9 +267,9 @@ def transcribe_segment_from_bytes(
             beam_size=settings.STT_BEAM_SIZE,  # ✅ 1로 설정 시 가장 빠름
             best_of=1,  # ✅ 샘플링 횟수 최소화
             temperature=0.0,  # ✅ 그리디 디코딩
-            compression_ratio_threshold=2.4,
-            log_prob_threshold=-1.0,
-            no_speech_threshold=0.6,
+            compression_ratio_threshold=None,
+            log_prob_threshold=None,
+            no_speech_threshold=None,
             condition_on_previous_text=bool(initial_prompt),  # ✅ 문맥 활용
         )
 

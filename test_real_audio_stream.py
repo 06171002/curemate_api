@@ -11,7 +11,7 @@ HOST_IP = "127.0.0.1"
 # (VAD가 요구하는 프레임)
 FRAME_DURATION_MS = 30
 # (테스트할 오디오 파일 경로)
-TEST_AUDIO_FILE = "temp_audio/test.mp3"  # (★ 본인의 MP3 파일 경로로 수정!)
+TEST_AUDIO_FILE = "temp_audio/test3.mp3"  # (★ 본인의 MP3 파일 경로로 수정!)
 # --------------------
 
 API_BASE_URL = f"http://{HOST_IP}:8000"
@@ -65,10 +65,10 @@ def on_open(ws):
                 ws.send(chunk, websocket.ABNF.OPCODE_BINARY)
 
                 # (중요) 실제 30ms 간격으로 전송 (실시간 시뮬레이션)
-                time.sleep(0.1)
+                time.sleep(0.03)
 
             print(f"[Streamer] 5. 오디오 전송 완료. 30초 후 연결 종료.")
-            time.sleep(100)
+            time.sleep(10)
             ws.close()
 
         except FileNotFoundError:

@@ -11,13 +11,17 @@ import time
 import sys
 import json
 from pydub import AudioSegment
+import os
 
 # --- 설정 ---
 HOST_IP = "127.0.0.1"
 TEST_AUDIO_FILE = "temp_audio/test.mp3"
 
-# ✅ WhisperLiveKit은 내부 VAD가 있으므로 작은 청크로 자주 보내도 됨
-CHUNK_DURATION_MS = 100  # 100ms 청크
+
+# 4KB 단위로 끊어서 전송 (일반적인 스트리밍 방식)
+CHUNK_SIZE = 4096
+# 전송 간격 (너무 빠르면 버퍼 오버플로우 가능성, 0.02~0.05초 적당)
+SEND_INTERVAL = 0.05
 
 API_BASE_URL = f"http://{HOST_IP}:8000"
 WS_BASE_URL = f"ws://{HOST_IP}:8000"
@@ -89,85 +93,54 @@ def on_close(ws, close_status_code, close_msg):
     print("🏁 WebSocket 연결 종료")
     print("="*60)
 
-    if stats["start_time"]:
-        total_time = time.time() - stats["start_time"]
-        print(f"📊 통계:")
-        print(f"   - 총 실행 시간: {total_time:.2f}초")
-        print(f"   - 수신한 세그먼트: {stats['segments_received']}개")
-        print(f"   - 총 텍스트 길이: {stats['total_text_length']}자")
-        if stats["segments_received"] > 0:
-            avg_time = total_time / stats["segments_received"]
-            print(f"   - 세그먼트당 평균 시간: {avg_time:.2f}초")
-
-    print("="*60 + "\n")
-
 
 def on_open(ws):
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("🚀 WebSocket 연결 성공 (WhisperLiveKit 모드)")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
     def send_audio_stream():
         try:
-            # 1. 오디오 파일 로드
-            print(f"📂 [1/4] 오디오 파일 로드: {TEST_AUDIO_FILE}")
-            audio = AudioSegment.from_file(TEST_AUDIO_FILE)
+            print(f"📂 [1/2] 오디오 파일 열기: {TEST_AUDIO_FILE}")
 
-            # 2. 16kHz, Mono, 16-bit PCM으로 변환
-            print(f"🔄 [2/4] 오디오 변환 중...")
-            audio = audio.set_frame_rate(16000)
-            audio = audio.set_channels(1)
-            audio = audio.set_sample_width(2)
+            if not os.path.exists(TEST_AUDIO_FILE):
+                print(f"\n❌ 테스트 파일({TEST_AUDIO_FILE})을 찾을 수 없습니다!")
+                ws.close()
+                return
 
-            # 3. 청크 크기 계산
-            frame_size_bytes = int(16000 * (CHUNK_DURATION_MS / 1000.0) * 2)
-            audio_bytes = audio.raw_data
-            total_chunks = len(audio_bytes) // frame_size_bytes
-            audio_duration = len(audio_bytes) / (16000 * 2)
+            file_size = os.path.getsize(TEST_AUDIO_FILE)
+            sent_bytes = 0
 
-            print(f"✅ [3/4] 오디오 정보:")
-            print(f"   - 총 길이: {audio_duration:.2f}초")
-            print(f"   - 청크 크기: {CHUNK_DURATION_MS}ms ({frame_size_bytes} bytes)")
-            print(f"   - 총 청크 수: {total_chunks}개")
-            print(f"\n▶️  [4/4] 스트리밍 시작...\n")
+            print(f"▶️  [2/2] 스트리밍 시작... (파일 크기: {file_size / 1024:.2f} KB)\n")
 
-            # 4. 청크 전송
-            last_progress = -1
-            for i in range(total_chunks):
-                start = i * frame_size_bytes
-                end = start + frame_size_bytes
-                chunk = audio_bytes[start:end]
+            # ✅ 파일 자체를 바이너리로 읽어서 전송 (Raw PCM 변환 X)
+            with open(TEST_AUDIO_FILE, "rb") as f:
+                while True:
+                    chunk = f.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
 
-                if len(chunk) < frame_size_bytes:
-                    break
+                    ws.send(chunk, websocket.ABNF.OPCODE_BINARY)
+                    sent_bytes += len(chunk)
 
-                ws.send(chunk, websocket.ABNF.OPCODE_BINARY)
+                    # 전송 속도 조절 (실시간 시뮬레이션)
+                    time.sleep(SEND_INTERVAL)
 
-                # 실시간 시뮬레이션
-                time.sleep(CHUNK_DURATION_MS / 1000.0)
+                    # 진행률 표시
+                    progress = int((sent_bytes / file_size) * 100)
+                    if progress % 10 == 0:
+                        sys.stdout.write(f"\r📤 전송 중... {progress}%")
+                        sys.stdout.flush()
 
-                # 진행 상황 출력 (10%마다)
-                progress = int((i + 1) / total_chunks * 10) * 10
-                if progress != last_progress and progress % 10 == 0:
-                    print(f"📤 전송 진행률: {progress}% ({i+1}/{total_chunks} 청크)")
-                    last_progress = progress
+            print(f"\n\n✅ [전송 완료] 모든 데이터 전송됨. 서버 처리 대기 중...")
 
-            print(f"\n✅ [전송 완료] 모든 오디오 데이터 전송 완료")
-            print(f"⏳ 서버 처리 대기 중 (최대 30초)...\n")
-
-            # 5. 서버 처리 대기
-            time.sleep(30)
+            # 서버가 처리를 완료할 시간을 줌 (최대 60초)
+            # final_summary를 받으면 on_message에서 close() 함
+            time.sleep(60)
             ws.close()
 
-        except FileNotFoundError:
-            print(f"\n❌ 테스트 파일({TEST_AUDIO_FILE})을 찾을 수 없습니다!")
-            print(f"   1. 파일 경로를 확인하세요")
-            print(f"   2. temp_audio 폴더가 존재하는지 확인하세요\n")
-            ws.close()
         except Exception as e:
             print(f"\n❌ 오디오 전송 중 오류: {e}")
-            import traceback
-            traceback.print_exc()
             ws.close()
 
     # 별도 스레드에서 오디오 전송 시작
@@ -182,7 +155,6 @@ def main():
     print(f"📋 설정:")
     print(f"   - API 서버: {API_BASE_URL}")
     print(f"   - 테스트 파일: {TEST_AUDIO_FILE}")
-    print(f"   - 청크 크기: {CHUNK_DURATION_MS}ms")
     print(f"   - STT 엔진: WhisperLiveKit (서버 측)")
     print("="*60 + "\n")
 
