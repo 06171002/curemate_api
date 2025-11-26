@@ -76,7 +76,7 @@ class Settings(BaseSettings):
         )
 
     # ==================== STT 설정 ====================
-    STT_ENGINE: Literal["faster-whisper", "whisperlivekit"] = "whisperlivekit"
+    STT_ENGINE: Literal["faster-whisper", "whisperlivekit"] = "faster-whisper"
     STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
     STT_DEVICE_TYPE: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     STT_LANGUAGE: str = "ko"
@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     WHISPERLIVE_USE_DIARIZATION: bool = False
 
     # ==================== LLM 설정 ====================
-    LLM_PROVIDER: Literal["ollama", "lmstudio"] = "lmstudio"
+    LLM_PROVIDER: Literal["ollama", "lmstudio"] = "ollama"
 
     # LM Studio
     LMSTUDIO_BASE_URL: str = "http://host.docker.internal:1234/v1"

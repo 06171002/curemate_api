@@ -8,7 +8,7 @@ import os
 
 # --- (★ 1. 설정) ---
 # (Uvicorn을 실행 중인 IP: 127.0.0.1 또는 Docker/WSL IP)
-HOST_IP = "127.0.0.1"
+HOST_IP = "172.30.1.4"
 # (VAD가 요구하는 프레임)
 FRAME_DURATION_MS = 30
 # (테스트할 오디오 파일 경로)

@@ -40,8 +40,12 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
                 segment_count += 1
                 transcript_segments.append(segment)
 
-                # (선택) DB에 세그먼트 저장
-                # await db_service.insert_stt_segment(job_id, segment)
+                await job_manager.save_segment(
+                    job_id=job_id,
+                    segment_text=segment,
+                    start_time=None,
+                    end_time=None
+                )
 
                 # 실시간 세그먼트 발행 (publish_event는 동기 함수이므로 await 불필요)
                 job_manager.publish_event(job_id, {

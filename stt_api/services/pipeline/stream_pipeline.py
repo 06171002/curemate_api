@@ -190,6 +190,13 @@ class StreamPipeline:
                         self.job.current_prompt_context += " " + segment_text
                         self.job.full_transcript.append(segment_text)
 
+                        await job_manager.save_segment(
+                            job_id=self.job.job_id,
+                            segment_text=segment_text,
+                            start_time=result.get("relative_time_sec"),  # 상대 시간(초) 저장
+                            end_time=None  # 종료 시간은 현재 로직에서 명시적이지 않으므로 None
+                        )
+
                         # ✅ 타임스탬프 정보 포함하여 반환
                         yield {
                             "type": "transcript_segment",
@@ -207,62 +214,94 @@ class StreamPipeline:
     async def finalize(self) -> Dict[str, Any]:
         """
         스트림 종료 시 최종 처리
+
+        ✅ 개선사항:
+        - 워커가 완전히 종료될 때까지 대기하지 않음
+        - STT 워커는 계속 실행하면서 결과만 수집
+        - 타임아웃을 길게 설정 (MP3 전체 처리 고려)
         """
         try:
             # ✅ 남은 버퍼 처리
             remaining_segment = self.job.flush_buffer()
             if remaining_segment:
+                segment_bytes, segment_timestamp = remaining_segment
                 self.segment_count += 1
                 self.metrics["pending_segments"] += 1
-                await self.processing_queue.put((remaining_segment, self.segment_count))
+                await self.processing_queue.put((segment_bytes, self.segment_count, segment_timestamp))
                 logger.info(
                     "남은 버퍼 처리",
                     segment_number=self.segment_count,
-                    segment_bytes=len(remaining_segment)
+                    segment_bytes=len(segment_bytes)
                 )
 
-            # ✅ 워커 종료 신호
-            self.is_running = False
-            await self.processing_queue.put(None)
-
-            # ✅ 모든 STT 처리 완료 대기
+            # ✅ 워커 종료 신호 (큐 끝에 None 추가)
+            # 주의: 워커는 계속 실행 중이므로 즉시 종료되지 않음
             logger.info(
-                "남은 세그먼트 처리 대기",
+                "워커 종료 신호 전송",
                 pending_count=self.metrics["pending_segments"]
             )
 
-            max_wait_time = 30.0  # 최대 30초 대기
+            # ✅ 모든 STT 처리 완료 대기 (타임아웃 증가)
+            max_wait_time = 180.0  # ✅ 3분으로 증가 (MP3 전체 처리 고려)
             wait_start = time.perf_counter()
+
+            logger.info(
+                "STT 처리 완료 대기 시작",
+                pending_count=self.metrics["pending_segments"],
+                max_wait_sec=max_wait_time
+            )
 
             while self.metrics["pending_segments"] > 0:
                 # 타임아웃 체크
-                if (time.perf_counter() - wait_start) > max_wait_time:
+                elapsed = time.perf_counter() - wait_start
+                if elapsed > max_wait_time:
                     logger.warning(
                         "STT 처리 타임아웃",
-                        remaining=self.metrics["pending_segments"]
+                        remaining=self.metrics["pending_segments"],
+                        elapsed_sec=round(elapsed, 2)
                     )
                     break
 
                 try:
+                    # ✅ 타임아웃을 5초로 증가
                     result = await asyncio.wait_for(
                         self.result_queue.get(),
-                        timeout=2.0
+                        timeout=5.0
                     )
 
                     if "error" not in result and result.get("text"):
                         self.job.current_prompt_context += " " + result["text"]
                         self.job.full_transcript.append(result["text"])
 
+                        logger.info(
+                            "STT 결과 수신",
+                            segment_number=result.get("segment_number"),
+                            text_preview=result["text"][:50],
+                            remaining=self.metrics["pending_segments"] - 1
+                        )
+
+                    self.metrics["pending_segments"] = max(0, self.metrics["pending_segments"] - 1)
+
                 except asyncio.TimeoutError:
-                    logger.warning("결과 대기 타임아웃")
+                    # ✅ 5초마다 진행 상황 로깅
+                    logger.info(
+                        "STT 처리 진행 중",
+                        remaining=self.metrics["pending_segments"],
+                        elapsed_sec=round(time.perf_counter() - wait_start, 2)
+                    )
                     continue
 
-            # 워커 종료 대기
+            # ✅ 이제 워커 종료 신호 전송
+            self.is_running = False
+            await self.processing_queue.put(None)
+
+            # 워커 종료 대기 (최대 10초)
             if self.worker_task:
                 try:
-                    await asyncio.wait_for(self.worker_task, timeout=5.0)
+                    await asyncio.wait_for(self.worker_task, timeout=10.0)
+                    logger.info("STT 워커 정상 종료")
                 except asyncio.TimeoutError:
-                    logger.warning("워커 종료 타임아웃")
+                    logger.warning("워커 종료 타임아웃, 강제 종료")
 
             # ThreadPoolExecutor 종료
             self.executor.shutdown(wait=False)
@@ -287,7 +326,6 @@ class StreamPipeline:
 
             if not final_transcript:
                 logger.warning("대화 내용 없음", job_id=self.job.job_id)
-                # ✅ await 추가
                 await job_manager.update_status(
                     self.job.job_id,
                     JobStatus.TRANSCRIBED,
@@ -300,7 +338,6 @@ class StreamPipeline:
                 }
 
             # STT 완료
-            # ✅ await 추가
             await job_manager.update_status(
                 self.job.job_id,
                 JobStatus.TRANSCRIBED,
@@ -311,16 +348,18 @@ class StreamPipeline:
                 "STT 완료",
                 job_id=self.job.job_id,
                 segment_count=self.segment_count,
-                stt_engine=self.stt_engine
+                stt_engine=self.stt_engine,
+                transcript_length=len(final_transcript)
             )
 
             # 요약 시작
             summary_start = time.perf_counter()
             logger.info("요약 시작", job_id=self.job.job_id)
+
+            from stt_api.services.llm import llm_service
             summary_dict = await llm_service.get_summary(final_transcript)
             summary_duration = (time.perf_counter() - summary_start) * 1000
 
-            # ✅ await 추가
             await job_manager.update_status(
                 self.job.job_id,
                 JobStatus.COMPLETED,
@@ -348,7 +387,6 @@ class StreamPipeline:
                 job_id=self.job.job_id,
                 error=str(e)
             )
-            # ✅ await 추가
             await job_manager.log_error(self.job.job_id, "stream_finalize", error_msg)
             return {
                 "type": "error",
