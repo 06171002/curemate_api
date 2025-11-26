@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Dict, Any, Optional
-import sys
+import asyncio
 from .database_service import db_service
 from . import cache_service
 from stt_api.core.logging_config import get_logger
@@ -51,35 +51,20 @@ class JobManager:
         """
         새 작업 생성 (DB + Redis)
 
-        Args:
-            job_id: 작업 고유 ID
-            job_type: BATCH 또는 REALTIME
-            metadata: 추가 메타데이터
-
-        Returns:
-            성공 여부
+        ✅ 비동기 함수를 동기적으로 실행
         """
         try:
-            # 1. DB에 작업 생성 (Primary)
-            db_success = self.db.create_stt_job(
+            # ✅ 비동기 함수를 동기적으로 실행
+            asyncio.run(self.db.create_stt_job(
                 job_id,
                 job_type.value,
                 metadata=metadata
-            )
-
-            if not db_success:
-                logger.error("DB 작업 생성 실패", job_id=job_id)
-                # ✅ CustomException 사용
-                raise JobCreationError(
-                    job_id=job_id,
-                    reason="DB 작업 생성 실패"
-                )
+            ))
 
             try:
                 self.cache.create_job(job_id, metadata)
             except Exception as cache_error:
                 logger.warning("Redis 캐시 생성 실패", job_id=job_id, error=str(cache_error))
-                self.db.log_error(job_id, "job_manager", f"Redis 캐시 생성 실패: {cache_error}")
 
             logger.info(
                 "작업 생성 완료",
@@ -88,12 +73,10 @@ class JobManager:
             )
             return True
 
-
         except JobCreationError:
-            raise  # 재발생
+            raise
         except Exception as e:
             logger.error("작업 생성 중 오류", job_id=job_id, exc_info=True)
-            self.db.log_error(job_id, "job_manager", str(e))
             raise JobCreationError(job_id=job_id, reason=str(e))
 
     # ==================== 작업 조회 ====================
@@ -102,8 +85,7 @@ class JobManager:
         """
         작업 조회 (Redis → DB 순서로 폴백)
 
-        Returns:
-            작업 데이터 또는 None
+        ✅ 비동기 함수를 동기적으로 실행
         """
         try:
             # Redis 캐시 조회
@@ -115,24 +97,23 @@ class JobManager:
             except Exception as cache_error:
                 logger.warning("캐시 조회 실패, DB로 폴백", job_id=job_id)
 
-            # DB 조회 (폴백)
+            # ✅ DB 조회 (비동기 → 동기)
             logger.debug("캐시 미스, DB 조회", job_id=job_id)
-            db_job = self.db.get_stt_job(job_id)
+            db_job = asyncio.run(self.db.get_stt_job(job_id))
 
             if not db_job:
-                # ✅ CustomException 사용
                 raise JobNotFoundException(job_id=job_id)
 
             # DB 데이터를 Redis에 캐싱
             try:
                 self._update_cache_from_db(job_id, db_job)
             except Exception:
-                pass  # 캐싱 실패는 무시
+                pass
 
             return db_job
 
         except JobNotFoundException:
-            raise  # 재발생
+            raise
         except Exception as e:
             logger.error("작업 조회 실패", job_id=job_id, exc_info=True)
             raise StorageException(
@@ -154,37 +135,21 @@ class JobManager:
         """
         작업 상태 업데이트 (DB + Redis 동기화)
 
-        Args:
-            job_id: 작업 ID
-            status: 새 상태
-            transcript: STT 결과
-            summary: 요약 결과
-            error_message: 에러 메시지
-            **extra_data: 추가 데이터 (segment_count 등)
-
-        Returns:
-            성공 여부
+        ✅ 비동기 함수를 동기적으로 실행
         """
         try:
-            # 1. DB 업데이트 (Primary, 필수)
-            db_success = self.db.update_stt_job_status(
+            # ✅ DB 업데이트 (비동기 → 동기)
+            asyncio.run(self.db.update_stt_job_status(
                 job_id,
                 status.value,
                 transcript=transcript,
                 summary=summary,
                 error_message=error_message
-            )
+            ))
 
-            if not db_success:
-                logger.error("DB 상태 업데이트 실패", job_id=job_id)
-                raise StorageException(
-                    message="DB 상태 업데이트 실패",
-                    details={"job_id": job_id, "status": status.value}
-                )
-
-            # 2. Redis 캐시 업데이트 (Secondary, 선택적)
+            # Redis 캐시 업데이트
             cache_data = {
-                "status": status.value.lower(),  # Redis는 소문자 사용
+                "status": status.value.lower(),
                 **extra_data
             }
 
@@ -200,15 +165,13 @@ class JobManager:
             except Exception as cache_error:
                 logger.warning("Redis 캐시 업데이트 실패", job_id=job_id)
 
-            logger.info("상태 업데이트", job_id=job_id, job_status= status.value)
+            logger.info("상태 업데이트", job_id=job_id, job_status=status.value)
             return True
-
 
         except StorageException:
             raise
         except Exception as e:
             logger.error("상태 업데이트 중 오류", job_id=job_id, exc_info=True)
-            self.db.log_error(job_id, "job_manager", str(e))
             raise StorageException(
                 message=f"상태 업데이트 실패",
                 details={"job_id": job_id, "error": str(e)}
@@ -217,35 +180,22 @@ class JobManager:
     # ==================== Pub/Sub (Redis 전용) ====================
 
     def publish_event(self, job_id: str, event_data: Dict[str, Any]) -> None:
-        """
-        작업 이벤트 발행 (Redis Pub/Sub)
-
-        Args:
-            job_id: 작업 ID
-            event_data: 이벤트 데이터 (type, text, summary 등)
-        """
+        """작업 이벤트 발행 (Redis Pub/Sub)"""
         try:
             self.cache.publish_message(job_id, event_data)
-            logger.info("이벤트 발행", job_id=job_id, event_data= event_data)
+            logger.info("이벤트 발행", job_id=job_id, event_data=event_data)
         except Exception as e:
             logger.error("이벤트 발행 실패", message=str(e))
-            self.db.log_error(job_id, "job_manager_pubsub", str(e))
 
     async def subscribe_events(self, job_id: str):
-        """
-        작업 이벤트 구독 (Redis Pub/Sub)
-
-        Yields:
-            이벤트 데이터
-        """
+        """작업 이벤트 구독 (Redis Pub/Sub)"""
         try:
             async for message in self.cache.subscribe_to_messages(job_id):
                 yield message
         except Exception as e:
-            logger.error("이벤트 구독 오류", message=sys.stderr)
-            self.db.log_error(job_id, "job_manager_pubsub", str(e))
+            logger.error("이벤트 구독 오류", message=str(e))
 
-    # ==================== 세그먼트 관리 (선택적) ====================
+    # ==================== 세그먼트 관리 ====================
 
     def save_segment(
             self,
@@ -257,31 +207,30 @@ class JobManager:
         """
         STT 세그먼트 저장 (DB)
 
-        Returns:
-            성공 여부
+        ✅ 비동기 함수를 동기적으로 실행
         """
         try:
-            return self.db.insert_stt_segment(
+            asyncio.run(self.db.insert_stt_segment(
                 job_id,
                 segment_text,
                 start_time,
                 end_time
-            )
+            ))
+            return True
         except Exception as e:
-            logger.error("세그먼트 저장 실패", message=sys.stderr)
+            logger.error("세그먼트 저장 실패", error=str(e))
             return False
 
     def get_segments(self, job_id: str):
         """
         작업의 모든 세그먼트 조회
 
-        Returns:
-            세그먼트 리스트
+        ✅ 비동기 함수를 동기적으로 실행
         """
         try:
-            return self.db.get_stt_segments(job_id)
+            return asyncio.run(self.db.get_stt_segments(job_id))
         except Exception as e:
-            logger.error("세그먼트 조회 실패", error_message= e, message=sys.stderr)
+            logger.error("세그먼트 조회 실패", error=str(e))
             return []
 
     # ==================== 에러 로그 ====================
@@ -290,34 +239,31 @@ class JobManager:
         """
         에러 로그 기록
 
-        Returns:
-            성공 여부
+        ✅ 비동기 함수를 동기적으로 실행
         """
         try:
-            return self.db.log_error(job_id, service_name, error_message)
+            asyncio.run(self.db.log_error(job_id, service_name, error_message))
+            return True
         except Exception as e:
-            logger.error("에러 로그 기록 실패", error_message=e, message=sys.stderr)
+            logger.error("에러 로그 기록 실패", error=str(e))
             return False
 
     def get_errors(self, job_id: str):
         """
         작업의 모든 에러 로그 조회
 
-        Returns:
-            에러 로그 리스트
+        ✅ 비동기 함수를 동기적으로 실행
         """
         try:
-            return self.db.get_error_logs(job_id)
+            return asyncio.run(self.db.get_error_logs(job_id))
         except Exception as e:
-            logger.error("에러 로그 조회 실패", error_message=e, message=sys.stderr)
+            logger.error("에러 로그 조회 실패", error=str(e))
             return []
 
     # ==================== 내부 헬퍼 메서드 ====================
 
     def _update_cache_from_db(self, job_id: str, db_data: Dict[str, Any]) -> None:
-        """
-        DB 데이터를 Redis 캐시에 동기화 (내부용)
-        """
+        """DB 데이터를 Redis 캐시에 동기화 (내부용)"""
         try:
             cache_data = {
                 "status": db_data.get("status", "").lower(),
@@ -331,7 +277,7 @@ class JobManager:
             logger.info("캐시 동기화 완료", job_id=job_id)
 
         except Exception as e:
-            logger.error("캐시 동기화 실패", message=e)
+            logger.error("캐시 동기화 실패", error=str(e))
 
 
 # ==================== 전역 인스턴스 ====================
