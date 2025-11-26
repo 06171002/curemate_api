@@ -51,7 +51,8 @@ async def create_conversation_request(
         "file_path": temp_file_path
     }
 
-    if not job_manager.create_job(job_id, JobType.BATCH, metadata=metadata):
+    # ✅ await 추가
+    if not await job_manager.create_job(job_id, JobType.BATCH, metadata=metadata):
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
         raise HTTPException(status_code=500, detail="작업 생성 실패")
@@ -62,11 +63,11 @@ async def create_conversation_request(
         logger.info("작업 생성 완료", job_id=job_id)
     except Exception as e:
         error_msg = f"Celery 작업 예약 실패: {str(e)}"
-        logger.error("Celery 작업 예약 실패",error_msg=e)
+        logger.error("Celery 작업 예약 실패", error_msg=e)
 
-        # ✅ JobManager로 실패 상태 업데이트
-        job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
-        job_manager.log_error(job_id, "celery_task", error_msg)
+        # ✅ JobManager로 실패 상태 업데이트 (await 추가)
+        await job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
+        await job_manager.log_error(job_id, "celery_task", error_msg)
 
         raise HTTPException(status_code=500, detail=error_msg)
 
@@ -79,9 +80,9 @@ async def create_conversation_request(
 
 
 @router.get("/api/v1/conversation/result/{job_id}")
-def get_conversation_result(job_id: str):
-    # ✅ JobManager로 조회 (DB → Redis 자동 폴백)
-    job = job_manager.get_job(job_id)
+async def get_conversation_result(job_id: str):  # ✅ async def로 변경
+    # ✅ JobManager로 조회 (DB → Redis 자동 폴백) - await 추가
+    job = await job_manager.get_job(job_id)
 
     if not job:
         raise HTTPException(status_code=404, detail="Job ID를 찾을 수 없습니다.")
@@ -96,15 +97,15 @@ async def stream_events(job_id: str, request: Request):
     1. 연결 시 이미 처리된 세그먼트를 먼저 전송
     2. 이후 실시간 이벤트 구독
     """
-    # 1. Job 존재 확인
-    job = job_manager.get_job(job_id)
+    # 1. Job 존재 확인 - ✅ await 추가
+    job = await job_manager.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job ID를 찾을 수 없습니다.")
 
     async def event_generator():
         try:
-            # ✅ STEP 1: 과거 세그먼트 전송 (DB에서 조회)
-            past_segments = job_manager.get_segments(job_id)
+            # ✅ STEP 1: 과거 세그먼트 전송 (DB에서 조회) - await 추가
+            past_segments = await job_manager.get_segments(job_id)
 
             logger.info(
                 "[SSE] 과거 세그먼트 전송 시작",
@@ -169,8 +170,8 @@ async def stream_events(job_id: str, request: Request):
             error_msg = f"스트리밍 중 오류: {str(e)}"
             logger.error("스트리밍 중 오류", error_msg=e)
 
-            # ✅ JobManager로 에러 로깅
-            job_manager.log_error(job_id, "sse_stream", error_msg)
+            # ✅ JobManager로 에러 로깅 (await 추가)
+            await job_manager.log_error(job_id, "sse_stream", error_msg)
 
             yield {
                 "event": "error",
@@ -181,16 +182,16 @@ async def stream_events(job_id: str, request: Request):
 
 
 @router.get("/api/v1/conversation/errors/{job_id}")
-def get_job_errors(job_id: str):
+async def get_job_errors(job_id: str):  # ✅ async def로 변경
     """
     특정 작업의 에러 로그를 조회합니다.
     """
-    # ✅ JobManager로 에러 로그 조회
-    errors = job_manager.get_errors(job_id)
+    # ✅ JobManager로 에러 로그 조회 (await 추가)
+    errors = await job_manager.get_errors(job_id)
 
     if not errors:
-        # Job 자체가 존재하는지 확인
-        job_exists = job_manager.get_job(job_id)
+        # Job 자체가 존재하는지 확인 (await 추가)
+        job_exists = await job_manager.get_job(job_id)
         if not job_exists:
             raise HTTPException(status_code=404, detail="Job ID를 찾을 수 없습니다.")
 

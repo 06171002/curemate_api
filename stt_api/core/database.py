@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import declarative_base
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from sqlalchemy import text
 
 from stt_api.core.config import settings
 from stt_api.core.logging_config import get_logger
@@ -82,7 +83,7 @@ async def init_database():
 
         async with engine.begin() as conn:
             # 연결 테스트
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
 
         logger.info(
             "데이터베이스 연결 성공",
@@ -150,7 +151,7 @@ async def check_database_health() -> bool:
     """
     try:
         async with engine.begin() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         return True
     except Exception as e:
         logger.warning("DB 헬스 체크 실패", error=str(e))

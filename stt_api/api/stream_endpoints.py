@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.post("/api/v1/stream/create", status_code=201)
-def create_stream_job():
+async def create_stream_job():  # ✅ async def로 변경
     """
     (F-API-03) 실시간 화상 통화를 위한 StreamingJob을 생성합니다.
     """
@@ -27,8 +27,8 @@ def create_stream_job():
     # 2. 전역 매니저(dict)에 등록
     active_jobs[job.job_id] = job
 
-    # ✅ JobManager로 작업 생성
-    if not job_manager.create_job(job.job_id, JobType.REALTIME, metadata=job.metadata):
+    # ✅ JobManager로 작업 생성 (await 추가)
+    if not await job_manager.create_job(job.job_id, JobType.REALTIME, metadata=job.metadata):
         del active_jobs[job.job_id]
         raise HTTPException(status_code=500, detail="작업 생성 실패")
 
@@ -52,15 +52,16 @@ async def conversation_stream(websocket: WebSocket, job_id: str):
     if not job:
         logger.error("[WebSocket] 존재하지 않는 Job ID로 연결 시도", job_id=job_id)
         await websocket.close(code=1008, reason="Job ID not found")
-        job_manager.log_error(job_id, "websocket_stream", "존재하지 않는 Job ID")
+        # ✅ await 추가
+        await job_manager.log_error(job_id, "websocket_stream", "존재하지 않는 Job ID")
         return
 
     # 2. 연결 수락
     await websocket.accept()
     logger.info("[WebSocket] 클라이언트 연결됨", job_id=job_id)
 
-    # ✅ JobManager로 상태 업데이트
-    job_manager.update_status(job_id, JobStatus.PROCESSING)
+    # ✅ JobManager로 상태 업데이트 (await 추가)
+    await job_manager.update_status(job_id, JobStatus.PROCESSING)
 
     await websocket.send_json({
         "type": "connection_success",
@@ -104,9 +105,9 @@ async def conversation_stream(websocket: WebSocket, job_id: str):
 
         logger.error("[WebSocket] 예기치 않은 오류", error_msg=e)
 
-        job_manager.log_error(job_id, "websocket", error_msg)
-
-        job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
+        # ✅ await 추가
+        await job_manager.log_error(job_id, "websocket", error_msg)
+        await job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
 
     finally:
         # 전역 매니저에서 Job 제거 (메모리 누수 방지!)

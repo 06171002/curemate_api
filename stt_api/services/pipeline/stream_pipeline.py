@@ -287,7 +287,8 @@ class StreamPipeline:
 
             if not final_transcript:
                 logger.warning("대화 내용 없음", job_id=self.job.job_id)
-                job_manager.update_status(
+                # ✅ await 추가
+                await job_manager.update_status(
                     self.job.job_id,
                     JobStatus.TRANSCRIBED,
                     transcript="",
@@ -299,7 +300,8 @@ class StreamPipeline:
                 }
 
             # STT 완료
-            job_manager.update_status(
+            # ✅ await 추가
+            await job_manager.update_status(
                 self.job.job_id,
                 JobStatus.TRANSCRIBED,
                 transcript=final_transcript
@@ -318,7 +320,8 @@ class StreamPipeline:
             summary_dict = await llm_service.get_summary(final_transcript)
             summary_duration = (time.perf_counter() - summary_start) * 1000
 
-            job_manager.update_status(
+            # ✅ await 추가
+            await job_manager.update_status(
                 self.job.job_id,
                 JobStatus.COMPLETED,
                 summary=summary_dict
@@ -345,7 +348,8 @@ class StreamPipeline:
                 job_id=self.job.job_id,
                 error=str(e)
             )
-            job_manager.log_error(self.job.job_id, "stream_finalize", error_msg)
+            # ✅ await 추가
+            await job_manager.log_error(self.job.job_id, "stream_finalize", error_msg)
             return {
                 "type": "error",
                 "message": error_msg

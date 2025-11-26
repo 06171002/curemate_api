@@ -42,7 +42,7 @@ class JobManager:
 
     # ==================== 작업 생성 ====================
 
-    def create_job(
+    async def create_job(
             self,
             job_id: str,
             job_type: JobType,
@@ -50,16 +50,15 @@ class JobManager:
     ) -> bool:
         """
         새 작업 생성 (DB + Redis)
-
-        ✅ 비동기 함수를 동기적으로 실행
+        ✅ async 함수로 변경 (await 사용)
         """
         try:
-            # ✅ 비동기 함수를 동기적으로 실행
-            asyncio.run(self.db.create_stt_job(
+            # ✅ asyncio.run() 제거 -> await 사용
+            await self.db.create_stt_job(
                 job_id,
                 job_type.value,
                 metadata=metadata
-            ))
+            )
 
             try:
                 self.cache.create_job(job_id, metadata)
@@ -81,14 +80,13 @@ class JobManager:
 
     # ==================== 작업 조회 ====================
 
-    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+    async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """
         작업 조회 (Redis → DB 순서로 폴백)
-
-        ✅ 비동기 함수를 동기적으로 실행
+        ✅ async 함수로 변경
         """
         try:
-            # Redis 캐시 조회
+            # Redis 캐시 조회 (동기 함수지만 async 안에서 호출 가능)
             try:
                 cached_job = self.cache.get_job(job_id)
                 if cached_job:
@@ -97,9 +95,9 @@ class JobManager:
             except Exception as cache_error:
                 logger.warning("캐시 조회 실패, DB로 폴백", job_id=job_id)
 
-            # ✅ DB 조회 (비동기 → 동기)
+            # ✅ DB 조회 (await 사용)
             logger.debug("캐시 미스, DB 조회", job_id=job_id)
-            db_job = asyncio.run(self.db.get_stt_job(job_id))
+            db_job = await self.db.get_stt_job(job_id)
 
             if not db_job:
                 raise JobNotFoundException(job_id=job_id)
@@ -123,7 +121,7 @@ class JobManager:
 
     # ==================== 작업 상태 업데이트 ====================
 
-    def update_status(
+    async def update_status(
             self,
             job_id: str,
             status: JobStatus,
@@ -134,18 +132,17 @@ class JobManager:
     ) -> bool:
         """
         작업 상태 업데이트 (DB + Redis 동기화)
-
-        ✅ 비동기 함수를 동기적으로 실행
+        ✅ async 함수로 변경
         """
         try:
-            # ✅ DB 업데이트 (비동기 → 동기)
-            asyncio.run(self.db.update_stt_job_status(
+            # ✅ DB 업데이트 (await 사용)
+            await self.db.update_stt_job_status(
                 job_id,
                 status.value,
                 transcript=transcript,
                 summary=summary,
                 error_message=error_message
-            ))
+            )
 
             # Redis 캐시 업데이트
             cache_data = {
@@ -180,7 +177,7 @@ class JobManager:
     # ==================== Pub/Sub (Redis 전용) ====================
 
     def publish_event(self, job_id: str, event_data: Dict[str, Any]) -> None:
-        """작업 이벤트 발행 (Redis Pub/Sub)"""
+        """작업 이벤트 발행 (Redis Pub/Sub) - 동기 유지 가능"""
         try:
             self.cache.publish_message(job_id, event_data)
             logger.info("이벤트 발행", job_id=job_id, event_data=event_data)
@@ -197,65 +194,49 @@ class JobManager:
 
     # ==================== 세그먼트 관리 ====================
 
-    def save_segment(
+    async def save_segment(
             self,
             job_id: str,
             segment_text: str,
             start_time: float = None,
             end_time: float = None
     ) -> bool:
-        """
-        STT 세그먼트 저장 (DB)
-
-        ✅ 비동기 함수를 동기적으로 실행
-        """
+        """STT 세그먼트 저장 (DB) - async 변경"""
         try:
-            asyncio.run(self.db.insert_stt_segment(
+            await self.db.insert_stt_segment(
                 job_id,
                 segment_text,
                 start_time,
                 end_time
-            ))
+            )
             return True
         except Exception as e:
             logger.error("세그먼트 저장 실패", error=str(e))
             return False
 
-    def get_segments(self, job_id: str):
-        """
-        작업의 모든 세그먼트 조회
-
-        ✅ 비동기 함수를 동기적으로 실행
-        """
+    async def get_segments(self, job_id: str):
+        """작업의 모든 세그먼트 조회 - async 변경"""
         try:
-            return asyncio.run(self.db.get_stt_segments(job_id))
+            return await self.db.get_stt_segments(job_id)
         except Exception as e:
             logger.error("세그먼트 조회 실패", error=str(e))
             return []
 
     # ==================== 에러 로그 ====================
 
-    def log_error(self, job_id: str, service_name: str, error_message: str) -> bool:
-        """
-        에러 로그 기록
-
-        ✅ 비동기 함수를 동기적으로 실행
-        """
+    async def log_error(self, job_id: str, service_name: str, error_message: str) -> bool:
+        """에러 로그 기록 - async 변경"""
         try:
-            asyncio.run(self.db.log_error(job_id, service_name, error_message))
+            await self.db.log_error(job_id, service_name, error_message)
             return True
         except Exception as e:
             logger.error("에러 로그 기록 실패", error=str(e))
             return False
 
-    def get_errors(self, job_id: str):
-        """
-        작업의 모든 에러 로그 조회
-
-        ✅ 비동기 함수를 동기적으로 실행
-        """
+    async def get_errors(self, job_id: str):
+        """작업의 모든 에러 로그 조회 - async 변경"""
         try:
-            return asyncio.run(self.db.get_error_logs(job_id))
+            return await self.db.get_error_logs(job_id)
         except Exception as e:
             logger.error("에러 로그 조회 실패", error=str(e))
             return []

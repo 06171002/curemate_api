@@ -26,7 +26,8 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
 
     try:
         # ========== 1. PROCESSING 상태 ==========
-        job_manager.update_status(job_id, JobStatus.PROCESSING)
+        # ✅ await 추가
+        await job_manager.update_status(job_id, JobStatus.PROCESSING)
 
         # ========== 2. STT 실행 ==========
         logger.info("[BatchPipeline] STT 시작...")
@@ -40,9 +41,9 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
                 transcript_segments.append(segment)
 
                 # (선택) DB에 세그먼트 저장
-                # db_service.insert_stt_segment(job_id, segment)
+                # await db_service.insert_stt_segment(job_id, segment)
 
-                # 실시간 세그먼트 발행
+                # 실시간 세그먼트 발행 (publish_event는 동기 함수이므로 await 불필요)
                 job_manager.publish_event(job_id, {
                     "type": "transcript_segment",
                     "text": segment,
@@ -54,7 +55,8 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             stack_trace = traceback.format_exc()
 
             logger.error("[BatchPipeline]", error_msg=error_msg)
-            job_manager.log_error(job_id, "batch_stt", f"{error_msg}\n\n{stack_trace}")
+            # ✅ await 추가
+            await job_manager.log_error(job_id, "batch_stt", f"{error_msg}\n\n{stack_trace}")
             raise
 
         # ========== 3. TRANSCRIBED 상태 ==========
@@ -64,7 +66,8 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             warning_msg = "STT 결과 없음"
             logger.warning("[BatchPipeline]", warning_msg=warning_msg)
 
-            job_manager.update_status(
+            # ✅ await 추가
+            await job_manager.update_status(
                 job_id,
                 JobStatus.TRANSCRIBED,
                 transcript="",
@@ -72,7 +75,8 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             )
             return {"status": "transcribed", "error": warning_msg}
 
-        job_manager.update_status(
+        # ✅ await 추가
+        await job_manager.update_status(
             job_id,
             JobStatus.TRANSCRIBED,
             transcript=full_transcript,
@@ -92,7 +96,8 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             stack_trace = traceback.format_exc()
 
             logger.error("[BatchPipeline]", error_msg=error_msg)
-            job_manager.log_error(job_id, "batch_summary", f"{error_msg}\n\n{stack_trace}")
+            # ✅ await 추가
+            await job_manager.log_error(job_id, "batch_summary", f"{error_msg}\n\n{stack_trace}")
 
             return {
                 "status": "transcribed",
@@ -101,6 +106,7 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             }
 
         # ========== 5. 요약 결과 발행 ==========
+        # (publish_event는 동기 함수이므로 await 불필요)
         job_manager.publish_event(job_id, {
             "type": "final_summary",
             "summary": summary_dict,
@@ -108,7 +114,8 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
         })
 
         # ========== 6. COMPLETED 상태 ==========
-        job_manager.update_status(
+        # ✅ await 추가
+        await job_manager.update_status(
             job_id,
             JobStatus.COMPLETED,
             summary=summary_dict
@@ -130,8 +137,9 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
 
         logger.error("[BatchPipeline]", error_msg=error_msg)
 
-        job_manager.log_error(job_id, "batch_pipeline", f"{error_msg}\n\n{stack_trace}")
-        job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
+        # ✅ await 추가
+        await job_manager.log_error(job_id, "batch_pipeline", f"{error_msg}\n\n{stack_trace}")
+        await job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
 
         return {"status": "failed", "error": error_msg}
 
