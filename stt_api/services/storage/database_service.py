@@ -36,10 +36,10 @@ class DatabaseService:
     # ==================== T_STT_JOB 관련 ====================
 
     async def create_stt_job(
-            self,
-            job_id: str,
-            job_type: str,
-            metadata: Dict = None
+        self,
+        job_id: str,
+        job_type: str,
+        metadata: Dict = None
     ) -> bool:
         """
         T_STT_JOB 테이블에 새로운 작업 생성
@@ -50,7 +50,7 @@ class DatabaseService:
                     job_id=job_id,
                     job_type=job_type,
                     status="PENDING",
-                    metadata=metadata or {},
+                    job_metadata=metadata or {},  # ✅ 수정: metadata → job_metadata
                     reg_id="system"  # TODO: 실제 사용자 ID로 변경
                 )
 
@@ -104,12 +104,12 @@ class DatabaseService:
             )
 
     async def update_stt_job_status(
-            self,
-            job_id: str,
-            status: str,
-            transcript: str = None,
-            summary: Dict = None,
-            error_message: str = None
+        self,
+        job_id: str,
+        status: str,
+        transcript: str = None,
+        summary: Dict = None,
+        error_message: str = None
     ) -> bool:
         """
         T_STT_JOB 테이블 상태 업데이트
@@ -165,11 +165,11 @@ class DatabaseService:
     # ==================== T_STT_SEGMENT 관련 ====================
 
     async def insert_stt_segment(
-            self,
-            job_id: str,
-            segment_text: str,
-            start_time: float = None,
-            end_time: float = None
+        self,
+        job_id: str,
+        segment_text: str,
+        start_time: float = None,
+        end_time: float = None
     ) -> bool:
         """
         T_STT_SEGMENT 테이블에 STT 세그먼트 삽입
@@ -236,10 +236,10 @@ class DatabaseService:
     # ==================== T_STT_ERROR_LOG 관련 ====================
 
     async def log_error(
-            self,
-            job_id: str,
-            service_name: str,
-            error_message: str
+        self,
+        job_id: str,
+        service_name: str,
+        error_message: str
     ) -> bool:
         """
         T_STT_ERROR_LOG 테이블에 에러 로그 기록

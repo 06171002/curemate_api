@@ -60,7 +60,9 @@ class STTJob(Base):
         Text,
         comment="최종 에러 메시지"
     )
-    metadata = Column(
+    # ✅ 수정: metadata → job_metadata (SQLAlchemy 예약어 충돌 회피)
+    job_metadata = Column(
+        "metadata",  # DB 컬럼명은 "metadata" 유지
         JSON,
         comment="파일 정보 등 메타데이터"
     )
@@ -103,7 +105,7 @@ class STTJob(Base):
             "original_transcript": self.original_transcript,
             "structured_summary": self.structured_summary,
             "error_message": self.error_message,
-            "metadata": self.metadata,
+            "metadata": self.job_metadata,  # ✅ 외부에는 metadata로 노출
             "reg_id": self.reg_id,
             "reg_dttm": self.reg_dttm.isoformat() if self.reg_dttm else None,
             "upd_id": self.upd_id,
