@@ -8,6 +8,9 @@ from fastapi.exceptions import RequestValidationError
 from stt_api.core.logging_config import setup_logging, get_logger
 from stt_api.core.exceptions import CustomException
 
+# ✅ 데이터베이스 임포트
+from stt_api.core.database import init_database, close_database, check_database_health
+
 # 서비스 모듈
 from stt_api.services.llm import llm_service
 from stt_api.services.stt import whisper_service
@@ -27,6 +30,7 @@ if settings.STT_ENGINE == "whisperlivekit":
 else:
     from stt_api.api import stream_endpoints
 
+
 # ==================== Lifespan 이벤트 ====================
 
 @asynccontextmanager
@@ -44,16 +48,21 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 50)
 
     try:
-        # 임시 오디오 디렉터리 생성
+        # 1. 데이터베이스 연결 초기화 (✅ 새로 추가)
+        logger.info("데이터베이스 초기화 시작")
+        await init_database()
+        logger.info("데이터베이스 초기화 완료")
+
+        # 2. 임시 오디오 디렉터리 생성
         os.makedirs(settings.TEMP_AUDIO_DIR, exist_ok=True)
         logger.info("임시 디렉터리 확인", path=settings.TEMP_AUDIO_DIR)
 
-        # STT 모델 로드
+        # 3. STT 모델 로드
         logger.info("STT 모델 로드 시작", model_size=settings.STT_MODEL_SIZE)
         whisper_service.load_stt_model()
         logger.info("STT 모델 로드 완료")
 
-        # LLM 연결 확인
+        # 4. LLM 연결 확인
         logger.info("LLM 서비스 연결 확인 시작", provider=settings.LLM_PROVIDER)
         await llm_service.check_connection()
         logger.info("LLM 서비스 연결 완료")
@@ -68,6 +77,10 @@ async def lifespan(app: FastAPI):
 
     # --- 서버 종료 시 ---
     logger.info("서버 종료 중...")
+
+    # ✅ 데이터베이스 연결 종료
+    await close_database()
+
     logger.info("=" * 50)
 
 
@@ -88,8 +101,6 @@ app = FastAPI(
 async def custom_exception_handler(request: Request, exc: CustomException):
     """
     ✅ 커스텀 예외 핸들러
-
-    모든 CustomException 일관된 형식으로 반환
     """
     logger.error(
         f"애플리케이션 예외 발생: {exc.__class__.__name__}",
@@ -222,9 +233,7 @@ def read_root():
 @app.get("/health")
 async def health_check():
     """
-    ✅ 헬스 체크 엔드포인트
-
-    서비스 상태 확인용 (로드 밸런서, 모니터링 도구)
+    ✅ 헬스 체크 엔드포인트 (DB 연결 확인 추가)
     """
     from stt_api.services.storage import job_manager
 
@@ -236,6 +245,9 @@ async def health_check():
     except:
         redis_status = "error"
 
+    # ✅ 데이터베이스 연결 확인
+    db_status = "ok" if await check_database_health() else "error"
+
     # STT 모델 로드 확인
     stt_status = "ok" if whisper_service._model else "not_loaded"
 
@@ -244,6 +256,7 @@ async def health_check():
         "version": settings.API_VERSION,
         "services": {
             "api": "ok",
+            "database": db_status,  # ✅ 새로 추가
             "redis": redis_status,
             "stt": stt_status,
             "llm": settings.LLM_PROVIDER

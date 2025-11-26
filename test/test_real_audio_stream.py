@@ -4,6 +4,7 @@ import threading
 import time
 import sys
 from pydub import AudioSegment
+import os
 
 # --- (★ 1. 설정) ---
 # (Uvicorn을 실행 중인 IP: 127.0.0.1 또는 Docker/WSL IP)
@@ -11,7 +12,8 @@ HOST_IP = "127.0.0.1"
 # (VAD가 요구하는 프레임)
 FRAME_DURATION_MS = 30
 # (테스트할 오디오 파일 경로)
-TEST_AUDIO_FILE = "../temp_audio/test4.mp3"  # (★ 본인의 MP3 파일 경로로 수정!)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+TEST_AUDIO_FILE = os.path.join(current_dir, "..", "temp_audio", "test4.mp3")  # (★ 본인의 MP3 파일 경로로 수정!)
 # --------------------
 
 API_BASE_URL = f"http://{HOST_IP}:8000"

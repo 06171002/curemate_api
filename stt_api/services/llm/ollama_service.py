@@ -80,7 +80,7 @@ class OllamaService(BaseLLMService):
             logger.error("[Ollama Service] 연결 실패", error_msg=e)
             raise LLMConnectionError(f"Ollama 연결 실패: {e}")
 
-    async def get_summary(transcript: str) -> Dict[str, Any]:
+    async def get_summary(self, transcript: str) -> Dict[str, Any]:
         """
         텍스트 대본을 받아 Ollama에 요약을 요청하고,
         파싱된 딕셔너리(JSON)를 반환합니다.

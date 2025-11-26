@@ -88,3 +88,7 @@ webrtcvad==2.0.10
 websocket-client==1.9.0
 websockets==15.0.1
 whisperlivekit>=0.1.0
+aiomysql==0.2.0  # 비동기 MySQL/MariaDB 드라이버
+pymysql==1.1.1  # 동기 MySQL/MariaDB 드라이버 (aiomysql 의존성)
+SQLAlchemy==2.0.36  # ORM (선택사항, 권장)
+alembic==1.14.0  # DB 마이그레이션 도구 (선택사항)

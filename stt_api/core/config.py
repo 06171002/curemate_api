@@ -33,6 +33,48 @@ class Settings(BaseSettings):
             return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
+    # ==================== 데이터베이스 설정 (MariaDB) ====================
+
+    DB_TYPE: Literal["mariadb", "mysql", "postgresql"] = "mariadb"
+    DB_HOST: str = "210.116.103.144"
+    DB_PORT: int = 3306
+    DB_NAME: str = "curemate"
+    DB_USER: str = "uds"
+    DB_PASSWORD: str = "275506%)"
+    DB_CHARSET: str = "utf8mb4"
+
+    # 연결 풀 설정
+    DB_POOL_SIZE: int = 10  # 기본 연결 수
+    DB_MAX_OVERFLOW: int = 20  # 최대 추가 연결 수
+    DB_POOL_RECYCLE: int = 3600  # 연결 재사용 주기 (초)
+    DB_ECHO: bool = False  # SQL 쿼리 로깅 여부
+
+    @property
+    def DATABASE_URL(self) -> str:
+        """
+        SQLAlchemy용 데이터베이스 URL 생성
+
+        형식: mysql+aiomysql://user:password@host:port/database?charset=utf8mb4
+        """
+        return (
+            f"mysql+aiomysql://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+            f"?charset={self.DB_CHARSET}"
+        )
+
+    @property
+    def SYNC_DATABASE_URL(self) -> str:
+        """
+        동기 데이터베이스 URL (테스트/마이그레이션용)
+
+        형식: mysql+pymysql://user:password@host:port/database?charset=utf8mb4
+        """
+        return (
+            f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+            f"?charset={self.DB_CHARSET}"
+        )
+
     # ==================== STT 설정 ====================
     STT_ENGINE: Literal["faster-whisper", "whisperlivekit"] = "whisperlivekit"
     STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
