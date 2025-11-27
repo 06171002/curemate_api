@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker
 )
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import declarative_base
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -26,10 +27,8 @@ Base = declarative_base()
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DB_ECHO,  # SQL 쿼리 로깅
-    pool_size=settings.DB_POOL_SIZE,  # 기본 연결 풀 크기
-    max_overflow=settings.DB_MAX_OVERFLOW,  # 추가 연결 허용
-    pool_recycle=settings.DB_POOL_RECYCLE,  # 연결 재사용 주기
-    pool_pre_ping=True,  # 연결 전 헬스 체크
+    # ✅ [변경] Celery 등 멀티 프로세스/루프 환경에서는 풀링을 비활성화(NullPool)해야 안전합니다.
+    poolclass=NullPool,
 )
 
 # ==================== 세션 팩토리 ====================

@@ -22,7 +22,7 @@ API_TIMEOUT = settings.OLLAMA_TIMEOUT
 
 # httpx 클라이언트는 재사용하는 것이 좋습니다.
 # 비동기(async) 클라이언트를 생성합니다. (워커가 비동기로 호출할 것을 대비)
-_client = httpx.AsyncClient(timeout=API_TIMEOUT)
+# _client = httpx.AsyncClient(timeout=API_TIMEOUT)
 
 
 # --- 프롬프트 생성 (F-SUM-02) ---
@@ -73,7 +73,9 @@ class OllamaService(BaseLLMService):
     async def check_connection(self) -> bool:
         try:
             logger.info("[Ollama Service] 서버 연결 확인...")
-            await self.client.get("http://host.docker.internal:11434/api/tags")
+            # ✅ [수정] 안전하게 로컬 클라이언트 사용
+            async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+                await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")  # URL은 상황에 맞게
             logger.info("[Ollama Service] 연결 성공", model=self.model_name)
             return True
         except httpx.RequestError as e:
@@ -100,13 +102,10 @@ class OllamaService(BaseLLMService):
 
         raw_response_string = None
         try:
-            response = await _client.post(OLLAMA_API_URL, json=payload)
-
-            # 4xx, 5xx 에러가 발생하면 예외를 발생시킴
-            response.raise_for_status()
-
-            # Ollama가 'format: json'을 사용하면 'response' 키에 JSON "문자열"을 담아줍니다.
-            raw_response_string = response.json()["response"]
+            async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+                response = await client.post(OLLAMA_API_URL, json=payload)
+                response.raise_for_status()
+                raw_response_string = response.json()["response"]
 
         except httpx.HTTPStatusError as e:
             logger.error("[Ollama Service] Ollama API 오류", status_code=e.response.status_code, error_msg=e.response.text)

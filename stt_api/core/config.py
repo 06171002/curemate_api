@@ -44,8 +44,8 @@ class Settings(BaseSettings):
     DB_CHARSET: str = "utf8mb4"
 
     # 연결 풀 설정
-    DB_POOL_SIZE: int = 10  # 기본 연결 수
-    DB_MAX_OVERFLOW: int = 20  # 최대 추가 연결 수
+    DB_POOL_SIZE: int = 3  # 기본 연결 수
+    DB_MAX_OVERFLOW: int = 5  # 최대 추가 연결 수
     DB_POOL_RECYCLE: int = 3600  # 연결 재사용 주기 (초)
     DB_ECHO: bool = False  # SQL 쿼리 로깅 여부
 
