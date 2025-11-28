@@ -284,8 +284,6 @@ async def conversation_stream(
             target_frame_duration_ms=constants.VAD_FRAME_DURATION_MS,
             input_format=audio_format,
             is_streaming_format=is_streaming,  # ✅ 추가
-            input_sample_rate=int(input_sample_rate),
-            input_channels=int(input_channels)
         )
 
         logger.info(

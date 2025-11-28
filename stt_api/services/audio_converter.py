@@ -29,12 +29,16 @@ class AudioStreamConverter:
         target_sample_rate: int = constants.VAD_SAMPLE_RATE,
         target_frame_duration_ms: int = constants.VAD_FRAME_DURATION_MS,
         input_format: str = "opus",  # opus, pcm_s16le, mp3 등
-        is_streaming_format: bool = True
+        is_streaming_format: bool = True,
+        input_sample_rate: int = 48000,
+        input_channels: int = 2
     ):
         self.target_sample_rate = target_sample_rate
         self.target_frame_duration_ms = target_frame_duration_ms
         self.input_format = input_format
         self.is_streaming_format = is_streaming_format
+        self.input_sample_rate = input_sample_rate  # 저장
+        self.input_channels = input_channels
 
         # 목표 프레임 크기 계산 (바이트)
         # 16kHz * 30ms = 480 samples * 2 bytes = 960 bytes
@@ -60,21 +64,20 @@ class AudioStreamConverter:
                 if codec_name == "pcm":
                     codec_name = "pcm_s16le"  # WebRTC 기본 PCM
 
-                # 2. 디코더 컨텍스트 생성
-                try:
-                    self.decoder = av.CodecContext.create(codec_name, "r")
-
-                    # Opus 등 일부 코덱은 초기 설정 필요 (WebRTC 표준)
-                    if codec_name == "opus":
-                        self.decoder.sample_rate = 48000
-                        self.decoder.channels = 2  # 보통 Stereo로 옴
-                    elif codec_name == "pcm_s16le":
-                        self.decoder.sample_rate = 48000
-                        self.decoder.channels = 2
-
-                except Exception as e:
-                    logger.warning(f"PyAV 코덱 초기화 실패 ({codec_name}), 자동 감지 모드로 전환될 수 있음: {e}")
+                # ✅ 수정: PCM인 경우 디코더를 생성하지 않고 넘어감 (Raw 데이터 처리)
+                if codec_name == "pcm_s16le":
                     self.decoder = None
+                    logger.info("Raw PCM 모드: 별도 디코더 없이 처리합니다.")
+                else:
+                    # Opus 등 다른 코덱은 디코더 생성
+                    try:
+                        self.decoder = av.CodecContext.create(codec_name, "r")
+                        if codec_name == "opus":
+                            self.decoder.sample_rate = 48000
+                            self.decoder.channels = 2
+                    except Exception as e:
+                        logger.warning(f"PyAV 코덱 초기화 실패 ({codec_name}): {e}")
+                        self.decoder = None
 
                 # 3. 리샘플러 초기화 (입력 포맷은 첫 프레임 수신 시 설정됨)
                 self.resampler = av.AudioResampler(
@@ -102,36 +105,56 @@ class AudioStreamConverter:
         self.total_received_bytes += len(raw_audio_chunk)
 
         try:
-            # --- 1. 디코딩 ---
             decoded_frames = []
 
+            # ✅ Case 1: Opus 등 코덱이 있는 경우 (기존 로직 유지)
             if self.decoder:
-                # PyAV Packet 생성
                 packet = av.Packet(raw_audio_chunk)
                 try:
-                    # 패킷 디코딩 (프레임 리스트 반환)
                     decoded_frames = self.decoder.decode(packet)
                 except Exception as e:
-                    # 패킷 손상 등의 이유로 디코딩 실패 시 무시하고 진행
                     logger.debug("패킷 디코딩 실패 (무시됨)", error=str(e))
                     return []
+
+            # ✅ Case 2: Raw PCM인 경우 (수정된 로직)
+            elif self.input_format in ["pcm", "pcm_s16le", "raw"]:
+                # 1. bytes -> numpy array (int16)
+                array = np.frombuffer(raw_audio_chunk, dtype=np.int16)
+
+                # 2. 차원 변환: (Samples, Channels) -> (Channels, Samples)
+                # 예: 1440 샘플, 2채널인 경우
+                # - 기존: (1440, 2) -> PyAV가 Packed 포맷에서 에러 발생
+                # - 변경: (2, 1440) -> PyAV Planar 포맷(s16p)에 적합
+                if self.input_channels > 0:
+                    array = array.reshape(-1, self.input_channels).T
+                    array = np.ascontiguousarray(array)
+                else:
+                    # 채널 정보가 없으면 1채널로 가정
+                    array = array.reshape(1, -1)
+
+                # 3. PyAV Frame 생성 (Planar 포맷 's16p' 사용)
+                # s16p는 채널별로 데이터가 나뉘어 있는 포맷입니다.
+                layout = 'stereo' if self.input_channels == 2 else 'mono'
+                frame = av.AudioFrame.from_ndarray(
+                    array,
+                    format='s16p',  # ✅ s16 대신 s16p 사용
+                    layout=layout
+                )
+                frame.sample_rate = self.input_sample_rate
+                decoded_frames = [frame]
+
             else:
-                # 디코더가 없으면 Raw PCM으로 가정하고 바로 처리 시도 (예외적 상황)
-                # (이 부분은 pydub 로직을 fallback으로 남겨둘 수도 있음)
                 return []
 
-            # --- 2. 리샘플링 및 버퍼링 ---
+            # --- 3. 리샘플링 및 버퍼링 (기존과 동일) ---
             for frame in decoded_frames:
-                # 프레임을 타겟 포맷으로 리샘플링 (16k, mono, s16)
+                # 프레임을 타겟 포맷(16k, mono, s16)으로 리샘플링
                 resampled_frames = self.resampler.resample(frame)
 
                 for resampled in resampled_frames:
-                    # ndarray -> bytes 변환하여 버퍼에 추가
-                    # PyAV 프레임은 numpy array로 변환 가능
                     pcm_bytes = resampled.to_ndarray().tobytes()
                     self.buffer.extend(pcm_bytes)
 
-            # --- 3. 30ms 프레임 추출 ---
             return self._extract_frames()
 
         except Exception as e:

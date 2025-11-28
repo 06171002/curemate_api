@@ -14,7 +14,8 @@ import os
 from pydub import AudioSegment
 
 # --- 설정 ---
-HOST_IP = "172.30.1.4"
+# HOST_IP = "172.30.1.4"
+HOST_IP = "127.0.0.1"
 current_dir = os.path.dirname(os.path.abspath(__file__))
 TEST_AUDIO_FILE = os.path.join(current_dir, "..", "temp_audio", "test4.mp3")  # (★ 본인의 MP3 파일 경로로 수정!)
 
@@ -114,13 +115,25 @@ def on_open(ws):
                 ws.close()
                 return
 
-            audio = AudioSegment.from_file(TEST_AUDIO_FILE)
-            audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-            raw_data = audio.raw_data  # 순수한 바이트 데이터
+            # =========================================================
+            # [수정 포인트] 서버의 PyAV 설정(48k, Stereo)에 맞춤
+            # =========================================================
+            target_sample_rate = 48000
+            target_channels = 2
 
-            # 2. 청크 단위 전송 시뮬레이션
-            # 30ms에 해당하는 바이트 수 계산: 16000 * 0.03 * 2(bytes) = 960 bytes
-            chunk_size = 960
+            audio = AudioSegment.from_file(TEST_AUDIO_FILE)
+            audio = audio.set_frame_rate(target_sample_rate)
+            audio = audio.set_channels(target_channels)
+            audio = audio.set_sample_width(2)  # 16-bit
+
+            raw_data = audio.raw_data
+
+            # 30ms 청크 크기 계산
+            # 48000 * 0.03(30ms) * 2(Stereo) * 2(16bit bytes) = 5760 bytes
+            chunk_size = int(target_sample_rate * 0.03 * target_channels * 2)
+
+            print(f"ℹ️  오디오 변환: {target_sample_rate}Hz, {target_channels}ch")
+            print(f"ℹ️  청크 크기: {chunk_size} bytes (30ms)")
 
             offset = 0
             while offset < len(raw_data):
@@ -134,7 +147,7 @@ def on_open(ws):
 
             print("   (서버 로그에서 진행 상황을 확인하세요)\n")
 
-            time.sleep(180)  # 3분 대기
+            time.sleep(60)  # 3분 대기
             ws.close()
 
         except Exception as e:
@@ -147,16 +160,6 @@ def on_open(ws):
 
 # --- 메인 로직 ---
 def main():
-    print("\n" + "="*60)
-    print("WebRTC 원본 스트림 전송 테스트")
-    print("="*60)
-    print(f"📋 설정:")
-    print(f"   - API 서버: {API_BASE_URL}")
-    print(f"   - 테스트 파일: {TEST_AUDIO_FILE}")
-    print(f"   - 청크 크기: {CHUNK_SIZE} bytes (가변)")
-    print(f"   - 전송 간격: {SEND_INTERVAL * 1000}ms")
-    print(f"   - 변환 모드: 서버 측 자동 변환 (16kHz/Mono/30ms)")
-    print("="*60 + "\n")
 
     try:
         # 1. Job 생성 (오디오 포맷 명시)
@@ -166,8 +169,8 @@ def main():
             f"{API_BASE_URL}/api/v1/stream/create",
             params={
                 "audio_format": "pcm",  # 실제 보내는 데이터가 Raw PCM이므로 "pcm"으로 설정
-                "sample_rate": 16000,  # 변환한 샘플레이트 명시 (서버 기본값은 48000일 수 있음)
-                "channels": 1  # 변환한 채널 수 명시
+                "sample_rate": 48000,  # 서버 요구사항에 맞춤
+                "channels": 2 # 변환한 채널 수 명시
             },
             timeout=10
         )
