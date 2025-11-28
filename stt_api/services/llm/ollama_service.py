@@ -1,6 +1,7 @@
 import httpx
 import json
 import sys
+import asyncio
 from typing import Dict, Any, Optional
 from stt_api.core.config import settings
 
@@ -68,7 +69,6 @@ class OllamaService(BaseLLMService):
     def __init__(self):
         self.api_url = OLLAMA_API_URL
         self.model_name = OLLAMA_MODEL_NAME
-        self.client = httpx.AsyncClient(timeout=API_TIMEOUT)
 
     async def check_connection(self) -> bool:
         try:
@@ -92,50 +92,81 @@ class OllamaService(BaseLLMService):
         # 1. 프롬프트 생성 (F-SUM-02)
         prompt_text = _build_summary_prompt(transcript)
 
-        # 2. API 호출 (F-SUM-01)
-        payload = {
-            "model": OLLAMA_MODEL_NAME,
-            "prompt": prompt_text,
-            "stream": False,
-            "format": "json"  # ★★★ Ollama에 JSON 형식으로 응답하도록 강제 (파싱이 쉬워짐)
-        }
+        MAX_RETRIES = 3
 
-        raw_response_string = None
-        try:
-            async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
-                response = await client.post(OLLAMA_API_URL, json=payload)
-                response.raise_for_status()
-                raw_response_string = response.json()["response"]
+        for attempt in range(MAX_RETRIES):
+            try:
+                # ✅ [핵심] 재시도할 때마다 온도를 높여서 다른 결과를 유도
+                # 시도 1: 0.0 (정확), 시도 2: 0.2, 시도 3: 0.4
+                current_temp = 0.2 * attempt
 
-        except httpx.HTTPStatusError as e:
-            logger.error("[Ollama Service] Ollama API 오류", status_code=e.response.status_code, error_msg=e.response.text)
-            raise RuntimeError(f"Ollama API 오류: {e.response.text}")
-        except httpx.RequestError as e:
-            logger.error("[Ollama Service] Ollama 연결 오류", error_msg=e)
-            raise RuntimeError(f"Ollama 서비스에 연결할 수 없습니다: {e}")
-        except Exception as e:
-            logger.error("[Ollama Service] 요약 요청 중 알 수 없는 오류", error_msg=e)
-            raise e  # worker.py가 처리하도록 예외를 다시 발생시킴
+                logger.info(
+                    "[Ollama Service] 요약 요청",
+                    attempt=attempt + 1,
+                    max_retries=MAX_RETRIES,
+                    temperature=current_temp
+                )
 
-        # 3. 결과 파싱 (F-SUM-03)
-        if not raw_response_string:
-            logger.error("[Ollama Service] Ollama가 비어있는 응답을 반환했습니다.")
-            raise ValueError("Ollama가 비어있는 응답을 반환했습니다.")
+                # 2. API 호출 Payload 구성
+                payload = {
+                    "model": OLLAMA_MODEL_NAME,
+                    "prompt": prompt_text,
+                    "stream": False,
+                    "format": "json",
+                    # ✅ Ollama 옵션 설정 (temperature 적용)
+                    "options": {
+                        "temperature": current_temp,
+                        "num_predict": 1024  # 생성 토큰 길이 제한 (필요시 조절)
+                    }
+                }
 
-        try:
-            # 'format: json' 옵션 덕분에 raw_response_string 자체가
-            # 깨끗한 JSON 문자열입니다.
-            # (예: '{\n  "main_complaint": "복통"\n}')
+                async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+                    response = await client.post(OLLAMA_API_URL, json=payload)
+                    response.raise_for_status()
+                    response_json = response.json()
 
-            summary_dict = json.loads(raw_response_string)
+                    # Ollama 응답 구조: {"response": "{...}", "done": true, ...}
+                    raw_response_string = response_json.get("response", "")
 
-            logger.info("[Ollama Service] 요약 작업 완료 및 JSON 파싱 성공.")
-            return summary_dict
+                # 3. 결과 파싱 및 검증
+                if not raw_response_string:
+                    raise ValueError("Ollama가 비어있는 응답을 반환했습니다.")
 
-        except json.JSONDecodeError:
-            logger.error("[Ollama Service] Ollama 응답 JSON 파싱 실패!")
-            logger.error("[Ollama Service] Ollama 원본 응답", raw_response=raw_response_string)
-            raise ValueError("Ollama가 반환한 요약이 올바른 JSON 형식이 아닙니다.")
+                try:
+                    summary_dict = json.loads(raw_response_string)
+                except json.JSONDecodeError:
+                    logger.warning("[Ollama Service] JSON 파싱 실패, 재시도합니다.")
+                    raise ValueError("JSON 파싱 실패")
+
+                # ✅ 빈 딕셔너리 체크 (이것 때문에 재시도 로직을 넣은 것임)
+                if not summary_dict:
+                    raise ValueError("Ollama가 빈 JSON({})을 반환했습니다.")
+
+                logger.info("[Ollama Service] 요약 성공 및 JSON 파싱 완료.")
+                return summary_dict
+
+            except Exception as e:
+                logger.warning(
+                    "[Ollama Service] 요약 시도 실패",
+                    attempt=attempt + 1,
+                    error=str(e)
+                )
+
+                # 마지막 시도였다면 에러를 던지거나 기본값 반환
+                if attempt == MAX_RETRIES - 1:
+                    logger.error("[Ollama Service] 최종 실패. 기본 에러 응답을 반환합니다.")
+                    # [선택] 에러를 던져서 작업을 FAILED로 만들거나,
+                    # raise e
+
+                    # [권장] 빈 값이라도 채워서 반환 (Job은 완료 처리됨)
+                    return {
+                        "main_complaint": "요약 실패",
+                        "diagnosis": "시스템 오류",
+                        "recommendation": "요약 서비스 연결에 실패했습니다."
+                    }
+
+                # 잠시 대기 후 재시도
+                await asyncio.sleep(1)
 
     async def get_medical_summary(self, transcript: str) -> Dict[str, Any]:
         # ... (기존 로직 또는 get_summary 호출)

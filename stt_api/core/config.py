@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     # Ollama
     OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
     OLLAMA_MODEL_NAME: str = "gemma3"
-    OLLAMA_TIMEOUT: float = 120.0
+    OLLAMA_TIMEOUT: float = 300.0
 
     # ==================== 파일 설정 ====================
     TEMP_AUDIO_DIR: str = "temp_audio"

@@ -11,9 +11,10 @@ import time
 import sys
 import json
 import os
+from pydub import AudioSegment
 
 # --- 설정 ---
-HOST_IP = "127.0.0.1"
+HOST_IP = "172.30.1.4"
 current_dir = os.path.dirname(os.path.abspath(__file__))
 TEST_AUDIO_FILE = os.path.join(current_dir, "..", "temp_audio", "test4.mp3")  # (★ 본인의 MP3 파일 경로로 수정!)
 
@@ -113,35 +114,22 @@ def on_open(ws):
                 ws.close()
                 return
 
-            file_size = os.path.getsize(TEST_AUDIO_FILE)
-            sent_bytes = 0
+            audio = AudioSegment.from_file(TEST_AUDIO_FILE)
+            audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+            raw_data = audio.raw_data  # 순수한 바이트 데이터
 
-            print(f"▶️  [2/2] 원본 스트림 전송 시작... (파일 크기: {file_size / 1024:.2f} KB)\n")
-            print("⚠️  서버 측에서 자동으로 16kHz/Mono/30ms 프레임으로 변환합니다.\n")
+            # 2. 청크 단위 전송 시뮬레이션
+            # 30ms에 해당하는 바이트 수 계산: 16000 * 0.03 * 2(bytes) = 960 bytes
+            chunk_size = 960
 
-            # ★ 원본 파일을 그대로 청크 단위로 전송 (변환 없음)
-            with open(TEST_AUDIO_FILE, "rb") as f:
-                chunk_num = 0
-                while True:
-                    # 가변 크기 청크 읽기 (WebRTC 시뮬레이션)
-                    chunk = f.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
+            offset = 0
+            while offset < len(raw_data):
+                chunk = raw_data[offset:offset + chunk_size]
+                ws.send(chunk, websocket.ABNF.OPCODE_BINARY)
 
-                    ws.send(chunk, websocket.ABNF.OPCODE_BINARY)
-                    sent_bytes += len(chunk)
-                    chunk_num += 1
+                offset += chunk_size
+                time.sleep(0.03)  # 30ms 대기 (실시간성 모사)
 
-                    # 실시간 전송 시뮬레이션
-                    time.sleep(SEND_INTERVAL)
-
-                    # 진행률 표시
-                    if chunk_num % 50 == 0:
-                        progress = int((sent_bytes / file_size) * 100)
-                        sys.stdout.write(f"\r📤 전송 중... {progress}% (청크 #{chunk_num})")
-                        sys.stdout.flush()
-
-            print(f"\n\n✅ [전송 완료] {chunk_num}개 청크 전송됨 ({sent_bytes / 1024:.2f} KB)")
             print("   서버 처리 대기 중...\n")
 
             # ✅ MP3 전체 변환 + STT 처리 시간 고려 (3분)
@@ -176,13 +164,12 @@ def main():
         # 1. Job 생성 (오디오 포맷 명시)
         print("🔧 [단계 1/2] Job 생성 요청...")
 
-        # ✅ MP3는 비스트리밍 포맷 (경고 메시지 수신 예상)
         response = requests.post(
             f"{API_BASE_URL}/api/v1/stream/create",
             params={
-                "audio_format": "mp3",  # 실제 WebRTC는 "opus" 사용 권장
-                "sample_rate": None,  # 자동 감지
-                "channels": None  # 자동 감지
+                "audio_format": "pcm",  # 실제 보내는 데이터가 Raw PCM이므로 "pcm"으로 설정
+                "sample_rate": 16000,  # 변환한 샘플레이트 명시 (서버 기본값은 48000일 수 있음)
+                "channels": 1  # 변환한 채널 수 명시
             },
             timeout=10
         )

@@ -44,6 +44,15 @@ async def create_stream_job(
     channels: Optional[int] = Query(
         None,
         description="입력 채널 수 (미지정 시 자동 감지)"
+    ),
+    # ✅ [추가] WebRTC 식별을 위한 파라미터 추가
+    room_id: Optional[str] = Query(
+        None,
+        description="WebRTC Room ID"
+    ),
+    member_id: Optional[str] = Query(
+        None,
+        description="Member ID"
     )
 ):
     """
@@ -65,7 +74,9 @@ async def create_stream_job(
         "input_audio_format": audio_format,
         "input_sample_rate": sample_rate,
         "input_channels": channels,
-        "is_streaming_format": is_streaming
+        "is_streaming_format": is_streaming,
+        "room_id": room_id,  # 추가됨
+        "member_id": member_id  # 추가됨
     }
 
     job = StreamingJob(metadata=metadata)
