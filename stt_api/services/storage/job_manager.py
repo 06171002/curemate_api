@@ -260,6 +260,133 @@ class JobManager:
         except Exception as e:
             logger.error("캐시 동기화 실패", error=str(e))
 
+    # ==================== room 관련 메서드 ====================
+    async def check_member_exists(
+            self,
+            room_id: str,
+            member_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        특정 방에 해당 참가자가 이미 작업을 시작했는지 확인
+
+        Returns:
+            기존 작업 정보 또는 None
+        """
+        try:
+            return await self.db.check_member_exists(room_id, member_id)
+        except Exception as e:
+            logger.error(
+                "참가자 존재 확인 실패",
+                room_id=room_id,
+                member_id=member_id,
+                error=str(e)
+            )
+            return None
+
+    async def get_or_create_room(
+            self,
+            room_id: str
+    ) -> Dict[str, Any]:
+        """
+        방 생성 또는 조회 (JobManager를 통한 통합 인터페이스)
+
+        Returns:
+            방 정보 딕셔너리
+        """
+        try:
+            room_info = await self.db.create_or_get_room(room_id)
+
+            logger.info(
+                "방 준비 완료",
+                room_id=room_id,
+                room_seq=room_info.get("room_seq"),
+                is_new=room_info.get("status") == "ACTIVE"
+            )
+
+            return room_info
+
+        except Exception as e:
+            logger.error(
+                "방 생성/조회 실패",
+                room_id=room_id,
+                error=str(e)
+            )
+            raise StorageException(
+                message="방 생성/조회 중 오류 발생",
+                details={"room_id": room_id, "error": str(e)}
+            )
+
+    async def get_room_info(self, room_id: str) -> Optional[Dict[str, Any]]:
+        """
+        방 상세 정보 조회 (참가자 목록 포함)
+        """
+        try:
+            return await self.db.get_room_info_with_members(room_id)
+        except Exception as e:
+            logger.error(
+                "방 정보 조회 실패",
+                room_id=room_id,
+                error=str(e)
+            )
+            return None
+
+    async def create_job_with_room(
+            self,
+            job_id: str,
+            job_type: JobType,
+            room_id: str,
+            member_id: str,
+            metadata: Dict[str, Any] = None
+    ) -> bool:
+        """
+        화상 회의용 작업 생성 (room_id, member_id 포함)
+
+        이 메서드는 create_job을 대체하여 화상 회의 전용 로직 처리
+        """
+        try:
+            # DB에 작업 생성 (room_id, member_id 포함)
+            await self.db.create_stt_job(
+                job_id,
+                job_type.value,
+                metadata=metadata,
+                room_id=room_id,
+                member_id=member_id
+            )
+
+            # Redis 캐시 생성
+            try:
+                cache_metadata = metadata.copy() if metadata else {}
+                cache_metadata.update({
+                    "room_id": room_id,
+                    "member_id": member_id
+                })
+                self.cache.create_job(job_id, cache_metadata)
+            except Exception as cache_error:
+                logger.warning(
+                    "Redis 캐시 생성 실패",
+                    job_id=job_id,
+                    error=str(cache_error)
+                )
+
+            logger.info(
+                "화상 회의 작업 생성 완료",
+                job_id=job_id,
+                room_id=room_id,
+                member_id=member_id,
+                job_type=job_type.value
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(
+                "화상 회의 작업 생성 실패",
+                job_id=job_id,
+                room_id=room_id,
+                member_id=member_id,
+                exc_info=True
+            )
+            raise JobCreationError(job_id=job_id, reason=str(e))
 
 # ==================== 전역 인스턴스 ====================
 

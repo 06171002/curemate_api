@@ -71,16 +71,72 @@ async def create_stream_job(
 
     room_seq = None
     if is_conference_mode:
-        # ✅ 2. 방 생성 또는 조회
-        room_info = await db_service.create_or_get_room(room_id)
-        room_seq = room_info["room_seq"]
-
         logger.info(
-            "화상 회의 모드",
+            "화상 회의 모드 요청",
             room_id=room_id,
-            room_seq=room_seq,
             member_id=member_id
         )
+
+        # ✅ 2-1. 방 생성 또는 조회 (JobManager 사용)
+        try:
+            room_info = await job_manager.get_or_create_room(room_id)
+            room_seq = room_info["room_seq"]
+
+            logger.info(
+                "방 준비 완료",
+                room_id=room_id,
+                room_seq=room_seq,
+                room_status=room_info.get("status")
+            )
+
+        except Exception as e:
+            logger.error(
+                "방 생성/조회 실패",
+                room_id=room_id,
+                error=str(e)
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"방 생성/조회 실패: {str(e)}"
+            )
+
+        # ✅ 2-2. 중복 참가자 체크
+        existing_job = await job_manager.check_member_exists(room_id, member_id)
+
+        if existing_job:
+            # 기존 작업 상태 확인
+            existing_status = existing_job.get("status", "").upper()
+
+            # PROCESSING 또는 PENDING 상태면 중복 접속으로 간주
+            if existing_status in ["PENDING", "PROCESSING"]:
+                logger.warning(
+                    "중복 참가자 접속 시도",
+                    room_id=room_id,
+                    member_id=member_id,
+                    existing_job_id=existing_job.get("job_id"),
+                    existing_status=existing_status
+                )
+
+                raise HTTPException(
+                    status_code=409,  # Conflict
+                    detail={
+                        "error": "DUPLICATE_MEMBER",
+                        "message": f"이미 '{member_id}'가 방 '{room_id}'에 참가 중입니다",
+                        "existing_job_id": existing_job.get("job_id"),
+                        "existing_status": existing_status,
+                        "suggestion": "기존 연결을 종료하거나 다른 member_id를 사용하세요"
+                    }
+                )
+
+            # COMPLETED/FAILED 상태면 재접속 허용
+            else:
+                logger.info(
+                    "참가자 재접속 (이전 작업 완료됨)",
+                    room_id=room_id,
+                    member_id=member_id,
+                    previous_job_id=existing_job.get("job_id"),
+                    previous_status=existing_status
+                )
 
     # ✅ 스트리밍 가능한 포맷 확인
     streaming_formats = ["opus", "pcm", "webm", "raw"]
@@ -99,16 +155,46 @@ async def create_stream_job(
     job = StreamingJob(metadata=metadata)
     active_jobs[job.job_id] = job
 
-    # JobManager로 작업 생성
-    if not await job_manager.create_job(job.job_id, JobType.REALTIME, metadata=metadata):
-        del active_jobs[job.job_id]
-        raise HTTPException(status_code=500, detail="작업 생성 실패")
+    # ==================== 5. DB에 작업 생성 ====================
+    try:
+        if is_conference_mode:
+            # ✅ 화상 회의 모드: room_id, member_id 포함
+            success = await job_manager.create_job_with_room(
+                job.job_id,
+                JobType.REALTIME,
+                room_id=room_id,
+                member_id=member_id,
+                metadata=metadata
+            )
+        else:
+            # 일반 모드: 기존 방식
+            success = await job_manager.create_job(
+                job.job_id,
+                JobType.REALTIME,
+                metadata=metadata
+            )
+
+        if not success:
+            del active_jobs[job.job_id]
+            raise HTTPException(status_code=500, detail="작업 생성 실패")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if job.job_id in active_jobs:
+            del active_jobs[job.job_id]
+        logger.error("작업 생성 중 오류", exc_info=True, error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"작업 생성 실패: {str(e)}"
+        )
 
     logger.info(
-        "새 스트림 작업 생성됨 (WebRTC 모드)",
+        "스트림 작업 생성 완료",
         job_id=job.job_id,
-        audio_format=audio_format,
-        is_streaming=is_streaming
+        mode="conference" if is_conference_mode else "single",
+        room_id=room_id if is_conference_mode else None,
+        member_id=member_id if is_conference_mode else None
     )
 
     warning_message = None
@@ -119,7 +205,7 @@ async def create_stream_job(
             "실시간 처리를 원하시면 opus, pcm, webm 포맷을 사용하세요."
         )
 
-    return {
+    response_data = {
         "job_id": job.job_id,
         "job_type": "REALTIME",
         "status": "pending",
@@ -128,9 +214,22 @@ async def create_stream_job(
             "target_frame_duration_ms": constants.VAD_FRAME_DURATION_MS,
             "input_format": audio_format,
             "is_streaming_format": is_streaming
-        },
-        "warning": warning_message
+        }
     }
+
+    # 화상 회의 모드 정보 추가
+    if is_conference_mode:
+        response_data["conference_info"] = {
+            "room_id": room_id,
+            "room_seq": room_seq,
+            "member_id": member_id,
+            "mode": "conference"
+        }
+
+    if warning_message:
+        response_data["warning"] = warning_message
+
+    return response_data
 
 
 @router.websocket("/ws/v1/stream/{job_id}")
@@ -331,6 +430,29 @@ async def conversation_stream(
         if job_id in active_jobs:
             del active_jobs[job_id]
             logger.info("스트림 작업 제거됨 (메모리 정리)", job_id=job_id)
+
+
+# ==================== 방 정보 조회 엔드포인트 추가 ====================
+
+@router.get("/api/v1/stream/room/{room_id}")
+async def get_room_status(room_id: str):
+    """
+    화상 회의 방 정보 조회
+
+    Returns:
+        - 방 상태
+        - 참가자 목록
+        - 각 참가자별 작업 상태
+    """
+    room_info = await job_manager.get_room_info(room_id)
+
+    if not room_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"방 '{room_id}'를 찾을 수 없습니다"
+        )
+
+    return room_info
 
 
 # ==================== 헬스 체크 엔드포인트 ====================

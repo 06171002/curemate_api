@@ -307,7 +307,6 @@ class DatabaseService:
             )
             return []
 
-    # ✅ 새로운 메서드 추가
     async def get_room_jobs(
             self,
             room_id: str,
@@ -438,6 +437,167 @@ class DatabaseService:
                 message="방 생성/조회 중 오류 발생",
                 details={"room_id": room_id, "error": str(e)}
             )
+
+    async def check_member_exists(
+            self,
+            room_id: str,
+            member_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        특정 방에 해당 참가자가 이미 있는지 확인
+
+        Args:
+            room_id: 방 ID
+            member_id: 참가자 ID
+
+        Returns:
+            기존 작업 정보 (없으면 None)
+        """
+        try:
+            async with get_transaction() as session:
+                stmt = (
+                    select(STTJob)
+                    .where(
+                        and_(
+                            STTJob.room_id == room_id,
+                            STTJob.member_id == member_id
+                        )
+                    )
+                    .order_by(STTJob.reg_dttm.desc())  # 가장 최근 작업
+                    .limit(1)
+                )
+
+                result = await session.execute(stmt)
+                job = result.scalar_one_or_none()
+
+                if job:
+                    logger.info(
+                        "기존 참가자 발견",
+                        room_id=room_id,
+                        member_id=member_id,
+                        existing_job_id=job.job_id,
+                        status=job.status
+                    )
+                    return job.to_dict()
+
+                return None
+
+        except Exception as e:
+            logger.error(
+                "참가자 존재 확인 실패",
+                exc_info=True,
+                room_id=room_id,
+                member_id=member_id,
+                error=str(e)
+            )
+            return None
+
+    async def get_room_member_count(self, room_id: str) -> int:
+        """
+        방의 고유 참가자 수 조회
+
+        Returns:
+            고유 member_id 개수
+        """
+        try:
+            async with get_transaction() as session:
+                from sqlalchemy import func, distinct
+
+                stmt = (
+                    select(func.count(distinct(STTJob.member_id)))
+                    .where(STTJob.room_id == room_id)
+                )
+
+                result = await session.execute(stmt)
+                count = result.scalar()
+
+                logger.debug(
+                    "방 참가자 수 조회",
+                    room_id=room_id,
+                    member_count=count
+                )
+
+                return count or 0
+
+        except Exception as e:
+            logger.error(
+                "참가자 수 조회 실패",
+                exc_info=True,
+                room_id=room_id,
+                error=str(e)
+            )
+            return 0
+
+    async def get_room_info_with_members(
+            self,
+            room_id: str
+    ) -> Dict[str, Any]:
+        """
+        방 정보 + 참가자 목록 조회
+
+        Returns:
+            {
+                "room_id": "...",
+                "status": "...",
+                "member_count": 3,
+                "members": [
+                    {"member_id": "alice", "job_count": 2, "last_active": "..."},
+                    {"member_id": "bob", "job_count": 1, "last_active": "..."}
+                ]
+            }
+        """
+        try:
+            async with get_transaction() as session:
+                # 1. 방 정보 조회
+                room_stmt = select(STTRoom).where(STTRoom.room_id == room_id)
+                room_result = await session.execute(room_stmt)
+                room = room_result.scalar_one_or_none()
+
+                if not room:
+                    return None
+
+                # 2. 참가자별 작업 통계 조회
+                from sqlalchemy import func
+
+                member_stmt = (
+                    select(
+                        STTJob.member_id,
+                        func.count(STTJob.job_id).label('job_count'),
+                        func.max(STTJob.upd_dttm).label('last_active')
+                    )
+                    .where(STTJob.room_id == room_id)
+                    .group_by(STTJob.member_id)
+                    .order_by(func.max(STTJob.upd_dttm).desc())
+                )
+
+                member_result = await session.execute(member_stmt)
+                members = []
+
+                for row in member_result:
+                    members.append({
+                        "member_id": row.member_id,
+                        "job_count": row.job_count,
+                        "last_active": row.last_active.isoformat() if row.last_active else None
+                    })
+
+                return {
+                    "room_seq": room.room_seq,
+                    "room_id": room.room_id,
+                    "status": room.status,
+                    "member_count": len(members),
+                    "members": members,
+                    "total_summary": room.total_summary,
+                    "reg_dttm": room.reg_dttm.isoformat() if room.reg_dttm else None
+                }
+
+        except Exception as e:
+            logger.error(
+                "방 상세 정보 조회 실패",
+                exc_info=True,
+                room_id=room_id,
+                error=str(e)
+            )
+            return None
 
 # 전역 인스턴스 생성
 db_service = DatabaseService()
