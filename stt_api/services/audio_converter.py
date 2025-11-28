@@ -1,12 +1,13 @@
 """
-오디오 스트림 변환 유틸리티 (PyAV 기반 개선 버전)
-
-WebRTC에서 받은 Opus/PCM 패킷을 상태를 유지하며 VAD 요구사항으로 변환
+최적화된 하이브리드 AudioStreamConverter
 """
 
 import av
 import numpy as np
 from typing import Optional, List
+from io import BytesIO
+from pydub import AudioSegment
+
 from stt_api.core.config import constants
 from stt_api.core.logging_config import get_logger
 from stt_api.core.exceptions import AudioFormatError
@@ -16,139 +17,176 @@ logger = get_logger(__name__)
 
 class AudioStreamConverter:
     """
-    실시간 오디오 스트림을 VAD 요구사항(16kHz, 16-bit, Mono)으로 변환
+    WebRTC 스트림 변환기 (하이브리드 방식)
 
-    특징:
-    - PyAV를 사용하여 디코딩 컨텍스트(CodecContext) 유지
-    - 패킷 단위 디코딩으로 끊김 없는 스트리밍 처리
-    - av.AudioResampler를 통한 고속 리샘플링
+    전략:
+    - Raw PCM: NumPy 직접 처리 (가장 빠름)
+    - Opus/WebM: PyAV 스트리밍 디코딩 (안정적)
+    - MP3/AAC: Pydub 일괄 처리 (호환성)
     """
 
     def __init__(
         self,
         target_sample_rate: int = constants.VAD_SAMPLE_RATE,
         target_frame_duration_ms: int = constants.VAD_FRAME_DURATION_MS,
-        input_format: str = "opus",  # opus, pcm_s16le, mp3 등
+        input_format: str = "opus",
         is_streaming_format: bool = True,
         input_sample_rate: int = 48000,
         input_channels: int = 2
     ):
         self.target_sample_rate = target_sample_rate
         self.target_frame_duration_ms = target_frame_duration_ms
-        self.input_format = input_format
+        self.input_format = input_format.lower()
         self.is_streaming_format = is_streaming_format
-        self.input_sample_rate = input_sample_rate  # 저장
+        self.input_sample_rate = input_sample_rate
         self.input_channels = input_channels
 
-        # 목표 프레임 크기 계산 (바이트)
-        # 16kHz * 30ms = 480 samples * 2 bytes = 960 bytes
+        # 목표 프레임 크기
         self.target_frame_bytes = int(
             target_sample_rate * (target_frame_duration_ms / 1000.0) * 2
         )
 
-        # 내부 PCM 버퍼
+        # 내부 버퍼
         self.buffer = bytearray()
+        self.raw_buffer = bytearray() if not is_streaming_format else None
 
         # 통계
         self.total_received_bytes = 0
         self.total_output_frames = 0
 
-        # --- PyAV 디코더 및 리샘플러 초기화 ---
+        # ✅ 전략 선택
+        self.strategy = self._select_strategy()
+
+        # ✅ PyAV 디코더 (Opus/WebM용)
         self.decoder = None
         self.resampler = None
 
-        try:
-            if self.is_streaming_format:
-                # 1. 코덱 이름 매핑 (ffmpeg 코덱 이름 기준)
-                codec_name = self.input_format
-                if codec_name == "pcm":
-                    codec_name = "pcm_s16le"  # WebRTC 기본 PCM
-
-                # ✅ 수정: PCM인 경우 디코더를 생성하지 않고 넘어감 (Raw 데이터 처리)
-                if codec_name == "pcm_s16le":
-                    self.decoder = None
-                    logger.info("Raw PCM 모드: 별도 디코더 없이 처리합니다.")
-                else:
-                    # Opus 등 다른 코덱은 디코더 생성
-                    try:
-                        self.decoder = av.CodecContext.create(codec_name, "r")
-                        if codec_name == "opus":
-                            self.decoder.sample_rate = 48000
-                            self.decoder.channels = 2
-                    except Exception as e:
-                        logger.warning(f"PyAV 코덱 초기화 실패 ({codec_name}): {e}")
-                        self.decoder = None
-
-                # 3. 리샘플러 초기화 (입력 포맷은 첫 프레임 수신 시 설정됨)
-                self.resampler = av.AudioResampler(
-                    format='s16',            # 16-bit PCM
-                    layout='mono',           # Mono
-                    rate=self.target_sample_rate  # 16000Hz
-                )
-
-        except Exception as e:
-            logger.error("AudioConverter 초기화 중 오류", exc_info=True, error=str(e))
+        if self.strategy == "pyav":
+            self._init_pyav()
 
         logger.info(
-            "AudioStreamConverter(PyAV) 초기화",
-            input_format=self.input_format,
-            decoder=self.decoder.name if self.decoder else "None"
+            "AudioStreamConverter 초기화",
+            strategy=self.strategy,
+            input_format=input_format,
+            target_sample_rate=target_sample_rate
         )
+
+    def _select_strategy(self) -> str:
+        """
+        입력 포맷에 따라 최적 전략 선택
+
+        Returns:
+            "numpy" | "pyav" | "pydub"
+        """
+        # 1. Raw PCM → NumPy 직접 처리 (가장 빠름)
+        if self.input_format in ["pcm", "pcm_s16le", "raw"]:
+            return "numpy"
+
+        # 2. Opus/WebM → PyAV 스트리밍 (안정적)
+        if self.input_format in ["opus", "webm"] and self.is_streaming_format:
+            return "pyav"
+
+        # 3. 기타/MP3 → Pydub 폴백 (호환성)
+        return "pydub"
+
+    def _init_pyav(self):
+        """PyAV 디코더 초기화 (Opus/WebM용)"""
+        try:
+            # 코덱 생성
+            codec_name = "libopus" if self.input_format == "opus" else "vp8"
+            self.decoder = av.CodecContext.create(codec_name, "r")
+
+            # Opus 전용 설정
+            if self.input_format == "opus":
+                self.decoder.sample_rate = 48000
+                self.decoder.channels = 2
+
+            # 리샘플러 생성
+            self.resampler = av.AudioResampler(
+                format='s16',
+                layout='mono',
+                rate=self.target_sample_rate
+            )
+
+            logger.info("PyAV 디코더 초기화 완료", codec=codec_name)
+
+        except Exception as e:
+            logger.warning(f"PyAV 초기화 실패, Pydub로 폴백: {e}")
+            self.strategy = "pydub"
 
     def convert_and_buffer(self, raw_audio_chunk: bytes) -> List[bytes]:
         """
-        오디오 패킷을 디코딩하고 리샘플링하여 버퍼에 추가
+        오디오 청크 변환
+
+        전략별 분기 처리
         """
         if not raw_audio_chunk:
             return []
 
         self.total_received_bytes += len(raw_audio_chunk)
 
+        # 비스트리밍 포맷: 버퍼에만 누적
+        if not self.is_streaming_format:
+            self.raw_buffer.extend(raw_audio_chunk)
+            return []
+
         try:
-            decoded_frames = []
+            # ✅ 전략별 처리
+            if self.strategy == "numpy":
+                return self._process_numpy(raw_audio_chunk)
+            elif self.strategy == "pyav":
+                return self._process_pyav(raw_audio_chunk)
+            else:  # pydub
+                return self._process_pydub(raw_audio_chunk)
 
-            # ✅ Case 1: Opus 등 코덱이 있는 경우 (기존 로직 유지)
-            if self.decoder:
-                packet = av.Packet(raw_audio_chunk)
-                try:
-                    decoded_frames = self.decoder.decode(packet)
-                except Exception as e:
-                    logger.debug("패킷 디코딩 실패 (무시됨)", error=str(e))
-                    return []
+        except Exception as e:
+            logger.error("오디오 변환 오류", error=str(e), strategy=self.strategy)
+            return []
 
-            # ✅ Case 2: Raw PCM인 경우 (수정된 로직)
-            elif self.input_format in ["pcm", "pcm_s16le", "raw"]:
-                # 1. bytes -> numpy array (int16)
-                array = np.frombuffer(raw_audio_chunk, dtype=np.int16)
+    def _process_numpy(self, raw_chunk: bytes) -> List[bytes]:
+        """
+        ✅ NumPy 직접 처리 (Raw PCM)
 
-                # 2. 차원 변환: (Samples, Channels) -> (Channels, Samples)
-                # 예: 1440 샘플, 2채널인 경우
-                # - 기존: (1440, 2) -> PyAV가 Packed 포맷에서 에러 발생
-                # - 변경: (2, 1440) -> PyAV Planar 포맷(s16p)에 적합
-                if self.input_channels > 0:
-                    array = array.reshape(-1, self.input_channels).T
-                    array = np.ascontiguousarray(array)
-                else:
-                    # 채널 정보가 없으면 1채널로 가정
-                    array = array.reshape(1, -1)
+        가장 빠른 방식 - FFmpeg 없이 순수 NumPy
+        """
+        # 1. bytes → numpy array
+        audio_np = np.frombuffer(raw_chunk, dtype=np.int16)
 
-                # 3. PyAV Frame 생성 (Planar 포맷 's16p' 사용)
-                # s16p는 채널별로 데이터가 나뉘어 있는 포맷입니다.
-                layout = 'stereo' if self.input_channels == 2 else 'mono'
-                frame = av.AudioFrame.from_ndarray(
-                    array,
-                    format='s16p',  # ✅ s16 대신 s16p 사용
-                    layout=layout
-                )
-                frame.sample_rate = self.input_sample_rate
-                decoded_frames = [frame]
+        # 2. Stereo → Mono (채널 평균)
+        if self.input_channels == 2:
+            audio_np = audio_np.reshape(-1, 2)
+            audio_np = audio_np.mean(axis=1).astype(np.int16)
 
-            else:
-                return []
+        # 3. 리샘플링 (선형 보간)
+        if self.input_sample_rate != self.target_sample_rate:
+            ratio = self.target_sample_rate / self.input_sample_rate
+            num_samples = int(len(audio_np) * ratio)
 
-            # --- 3. 리샘플링 및 버퍼링 (기존과 동일) ---
-            for frame in decoded_frames:
-                # 프레임을 타겟 포맷(16k, mono, s16)으로 리샘플링
+            audio_np = np.interp(
+                np.linspace(0, len(audio_np) - 1, num_samples),
+                np.arange(len(audio_np)),
+                audio_np
+            ).astype(np.int16)
+
+        # 4. 버퍼에 추가
+        pcm_bytes = audio_np.tobytes()
+        self.buffer.extend(pcm_bytes)
+
+        return self._extract_frames()
+
+    def _process_pyav(self, raw_chunk: bytes) -> List[bytes]:
+        """
+        ✅ PyAV 스트리밍 처리 (Opus/WebM)
+
+        안정적이고 효율적
+        """
+        try:
+            # 패킷 디코딩
+            packet = av.Packet(raw_chunk)
+            frames = self.decoder.decode(packet)
+
+            # 리샘플링
+            for frame in frames:
                 resampled_frames = self.resampler.resample(frame)
 
                 for resampled in resampled_frames:
@@ -158,38 +196,82 @@ class AudioStreamConverter:
             return self._extract_frames()
 
         except Exception as e:
-            logger.error("오디오 변환 오류", error=str(e))
+            logger.debug("PyAV 디코딩 실패", error=str(e))
+            return []
+
+    def _process_pydub(self, raw_chunk: bytes) -> List[bytes]:
+        """
+        ✅ Pydub 처리 (폴백/호환성)
+
+        느리지만 안정적
+        """
+        try:
+            # AudioSegment 디코딩
+            audio = AudioSegment.from_file(
+                BytesIO(raw_chunk),
+                format=self.input_format
+            )
+
+            # 리샘플링
+            audio = audio.set_frame_rate(self.target_sample_rate)
+            audio = audio.set_channels(1)
+            audio = audio.set_sample_width(2)
+
+            # 버퍼에 추가
+            pcm_data = audio.raw_data
+            self.buffer.extend(pcm_data)
+
+            return self._extract_frames()
+
+        except Exception as e:
+            logger.warning("Pydub 처리 실패", error=str(e))
             return []
 
     def _extract_frames(self) -> List[bytes]:
-        """버퍼에서 30ms 단위로 프레임 추출"""
+        """버퍼에서 30ms 프레임 추출"""
         frames = []
+
         while len(self.buffer) >= self.target_frame_bytes:
             frame = bytes(self.buffer[:self.target_frame_bytes])
             frames.append(frame)
             del self.buffer[:self.target_frame_bytes]
+            self.total_output_frames += 1
+
         return frames
 
     def flush(self) -> Optional[bytes]:
-        """남은 데이터 처리"""
-        # 스트리밍 모드에서는 디코더 내부 버퍼 flush가 필요할 수 있음
-        if self.decoder:
+        """버퍼 flush"""
+        # 비스트리밍 포맷: 전체 변환
+        if not self.is_streaming_format and len(self.raw_buffer) > 0:
             try:
-                # 빈 패킷을 보내 내부 버퍼 비우기 (일부 코덱)
-                # decoded_frames = self.decoder.decode(None)
-                # ... 처리 로직 (생략 가능, VAD에서는 보통 무시됨)
-                pass
-            except:
-                pass
+                audio = AudioSegment.from_file(
+                    BytesIO(bytes(self.raw_buffer)),
+                    format=self.input_format
+                )
 
+                audio = audio.set_frame_rate(self.target_sample_rate)
+                audio = audio.set_channels(1)
+                audio = audio.set_sample_width(2)
+
+                self.buffer.extend(audio.raw_data)
+                self.raw_buffer.clear()
+
+                logger.info("비스트리밍 포맷 전체 변환 완료")
+
+            except Exception as e:
+                logger.error("전체 변환 실패", error=str(e))
+
+        # 남은 버퍼 반환
         if len(self.buffer) > 0:
             remaining = bytes(self.buffer)
             self.buffer.clear()
             return remaining
+
         return None
 
     def get_stats(self) -> dict:
         return {
+            "strategy": self.strategy,
             "total_received_bytes": self.total_received_bytes,
             "total_output_frames": self.total_output_frames,
             "buffer_bytes": len(self.buffer)
