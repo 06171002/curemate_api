@@ -275,12 +275,17 @@ async def conversation_stream(
     audio_format = job.metadata.get("input_audio_format", "opus")
     is_streaming = job.metadata.get("is_streaming_format", True)
 
+    input_sample_rate = job.metadata.get("input_sample_rate") or 48000
+    input_channels = job.metadata.get("input_channels") or 2
+
     try:
         audio_converter = AudioStreamConverter(
             target_sample_rate=constants.VAD_SAMPLE_RATE,
             target_frame_duration_ms=constants.VAD_FRAME_DURATION_MS,
             input_format=audio_format,
-            is_streaming_format=is_streaming  # ✅ 추가
+            is_streaming_format=is_streaming,  # ✅ 추가
+            input_sample_rate=int(input_sample_rate),
+            input_channels=int(input_channels)
         )
 
         logger.info(
