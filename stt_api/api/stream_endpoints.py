@@ -25,6 +25,7 @@ from stt_api.services.audio_converter import AudioStreamConverter
 from stt_api.core.config import active_jobs, constants
 from stt_api.core.logging_config import get_logger
 from stt_api.core.exceptions import CustomException
+from stt_api.services.storage import db_service
 
 logger = get_logger(__name__)
 
@@ -65,6 +66,22 @@ async def create_stream_job(
         - sample_rate: 입력 오디오 샘플레이트 (선택사항)
         - channels: 입력 오디오 채널 수 (선택사항)
     """
+    # ✅ 1. 화상 회의 모드인지 확인
+    is_conference_mode = bool(room_id and member_id)
+
+    room_seq = None
+    if is_conference_mode:
+        # ✅ 2. 방 생성 또는 조회
+        room_info = await db_service.create_or_get_room(room_id)
+        room_seq = room_info["room_seq"]
+
+        logger.info(
+            "화상 회의 모드",
+            room_id=room_id,
+            room_seq=room_seq,
+            member_id=member_id
+        )
+
     # ✅ 스트리밍 가능한 포맷 확인
     streaming_formats = ["opus", "pcm", "webm", "raw"]
     is_streaming = audio_format.lower() in streaming_formats

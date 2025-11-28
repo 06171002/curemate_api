@@ -11,7 +11,7 @@ from sqlalchemy import select, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from stt_api.core.database import get_transaction
-from stt_api.models.database_models import STTJob, STTSegment, STTErrorLog
+from stt_api.models.database_models import STTJob, STTSegment, STTErrorLog, STTRoom
 from stt_api.core.logging_config import get_logger
 from stt_api.core.exceptions import (
     StorageException,
@@ -39,7 +39,9 @@ class DatabaseService:
         self,
         job_id: str,
         job_type: str,
-        metadata: Dict = None
+        metadata: Dict = None,
+        room_id: str = None,  # ✅ 추가
+        member_id: str = None  # ✅ 추가
     ) -> bool:
         """
         T_STT_JOB 테이블에 새로운 작업 생성
@@ -50,6 +52,8 @@ class DatabaseService:
                     job_id=job_id,
                     job_type=job_type,
                     status="PENDING",
+                    room_id=room_id,  # ✅ 추가
+                    member_id=member_id,  # ✅ 추가
                     job_metadata=metadata or {},  # ✅ 수정: metadata → job_metadata
                     reg_id="system"  # TODO: 실제 사용자 ID로 변경
                 )
@@ -303,6 +307,137 @@ class DatabaseService:
             )
             return []
 
+    # ✅ 새로운 메서드 추가
+    async def get_room_jobs(
+            self,
+            room_id: str,
+            status: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        특정 방의 모든 작업 조회
+
+        Args:
+            room_id: 방 ID
+            status: 상태 필터 (None이면 전체)
+
+        Returns:
+            작업 목록
+        """
+        try:
+            async with get_transaction() as session:
+                stmt = select(STTJob).where(STTJob.room_id == room_id)
+
+                if status:
+                    stmt = stmt.where(STTJob.status == status)
+
+                stmt = stmt.order_by(STTJob.reg_dttm)
+
+                result = await session.execute(stmt)
+                jobs = result.scalars().all()
+
+            logger.debug(
+                "방 작업 목록 조회",
+                room_id=room_id,
+                count=len(jobs)
+            )
+
+            return [job.to_dict() for job in jobs]
+
+        except Exception as e:
+            logger.error(
+                "방 작업 조회 실패",
+                exc_info=True,
+                room_id=room_id,
+                error=str(e)
+            )
+            return []
+
+    async def get_completed_room_transcripts(
+            self,
+            room_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        방의 완료된 모든 대화록 조회 (통합 요약용)
+
+        Returns:
+            [{"member_id": "alice", "transcript": "...", "summary": {...}}, ...]
+        """
+        try:
+            async with get_transaction() as session:
+                stmt = (
+                    select(STTJob)
+                    .where(STTJob.room_id == room_id)
+                    .where(STTJob.status.in_(["COMPLETED", "TRANSCRIBED"]))
+                    .where(STTJob.original_transcript.isnot(None))
+                    .order_by(STTJob.reg_dttm)
+                )
+
+                result = await session.execute(stmt)
+                jobs = result.scalars().all()
+
+            transcripts = []
+            for job in jobs:
+                transcripts.append({
+                    "job_id": job.job_id,
+                    "member_id": job.member_id,
+                    "transcript": job.original_transcript,
+                    "summary": job.structured_summary,
+                    "reg_dttm": job.reg_dttm.isoformat() if job.reg_dttm else None
+                })
+
+            logger.info(
+                "방 대화록 조회",
+                room_id=room_id,
+                transcript_count=len(transcripts)
+            )
+
+            return transcripts
+
+        except Exception as e:
+            logger.error(
+                "방 대화록 조회 실패",
+                exc_info=True,
+                room_id=room_id,
+                error=str(e)
+            )
+            return []
+
+    async def create_or_get_room(self, room_id: str) -> Dict[str, Any]:
+        """
+        방 생성 또는 조회
+
+        Returns:
+            방 정보 딕셔너리
+        """
+        try:
+            async with get_transaction() as session:
+                # 기존 방 조회
+                stmt = select(STTRoom).where(STTRoom.room_id == room_id)
+                result = await session.execute(stmt)
+                room = result.scalar_one_or_none()
+
+                if room:
+                    logger.debug("기존 방 조회", room_id=room_id)
+                    return room.to_dict()
+
+                # 새 방 생성
+                room = STTRoom(
+                    room_id=room_id,
+                    status="ACTIVE",
+                    reg_id="system"
+                )
+                session.add(room)
+                await session.flush()  # room_seq 얻기 위해
+
+                logger.info("새 방 생성", room_id=room_id, room_seq=room.room_seq)
+                return room.to_dict()
+
+        except Exception as e:
+            logger.error("방 생성/조회 실패", exc_info=True, error=str(e))
+            raise StorageException(
+                message="방 생성/조회 중 오류 발생",
+                details={"room_id": room_id, "error": str(e)}
+            )
 
 # 전역 인스턴스 생성
 db_service = DatabaseService()

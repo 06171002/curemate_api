@@ -48,6 +48,17 @@ class STTJob(Base):
         index=True,
         comment="작업 상태"
     )
+
+    # ✅ WebRTC 화상 회의용 필드
+    room_id = Column(
+        String(50),
+        index=True,
+        comment="화상 회의 방 ID (NULL이면 1:1 모드)"
+    )
+    member_id = Column(
+        String(50),
+        comment="참가자 ID"
+    )
     original_transcript = Column(
         Text,
         comment="전체 STT 대화록"
@@ -102,6 +113,8 @@ class STTJob(Base):
             "job_id": self.job_id,
             "job_type": self.job_type,
             "status": self.status,
+            "room_id": self.room_id,  # ✅ 추가
+            "member_id": self.member_id,  # ✅ 추가
             "original_transcript": self.original_transcript,
             "structured_summary": self.structured_summary,
             "error_message": self.error_message,
@@ -258,6 +271,59 @@ class STTErrorLog(Base):
             "job_id": self.job_id,
             "service_name": self.service_name,
             "error_message": self.error_message,
+            "reg_id": self.reg_id,
+            "reg_dttm": self.reg_dttm.isoformat() if self.reg_dttm else None,
+            "upd_id": self.upd_id,
+            "upd_dttm": self.upd_dttm.isoformat() if self.upd_dttm else None,
+        }
+
+
+class STTRoom(Base):
+    """
+    T_STT_ROOM 테이블 매핑
+
+    화상 회의 방 관리
+    """
+    __tablename__ = "t_stt_room"
+
+    room_seq = Column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="방 고유 번호"
+    )
+    room_id = Column(
+        String(50),
+        unique=True,
+        nullable=False,
+        index=True,
+        comment="화상 회의 방 ID"
+    )
+    status = Column(
+        String(20),
+        nullable=False,
+        default="ACTIVE",
+        comment="방 상태"
+    )
+    total_summary = Column(
+        JSON,
+        comment="전체 참가자 통합 요약"
+    )
+    reg_id = Column(String(100), comment="생성자 ID")
+    reg_dttm = Column(DateTime, default=func.now(), nullable=False)
+    upd_id = Column(String(100), comment="수정 ID")
+    upd_dttm = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        {'comment': 'STT 화상 회의 방(헤더) 관리 테이블'}
+    )
+
+    def to_dict(self):
+        return {
+            "room_seq": self.room_seq,
+            "room_id": self.room_id,
+            "status": self.status,
+            "total_summary": self.total_summary,
             "reg_id": self.reg_id,
             "reg_dttm": self.reg_dttm.isoformat() if self.reg_dttm else None,
             "upd_id": self.upd_id,
