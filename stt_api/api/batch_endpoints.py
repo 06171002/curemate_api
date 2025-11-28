@@ -102,6 +102,9 @@ async def stream_events(job_id: str, request: Request):
     if not job:
         raise HTTPException(status_code=404, detail="Job ID를 찾을 수 없습니다.")
 
+    # ✅ 현재 작업 상태 미리 확보
+    current_job_status = job.get("status", "PENDING")
+
     async def event_generator():
         try:
             # ✅ STEP 1: 과거 세그먼트 전송 (DB에서 조회) - await 추가
@@ -124,7 +127,8 @@ async def stream_events(job_id: str, request: Request):
                         "type": "transcript_segment",
                         "text": segment["segment_text"],
                         "segment_number": segment.get("segment_number", 0),
-                        "is_historical": True  # ✅ 과거 데이터 표시
+                        "is_historical": True,  # ✅ 과거 데이터 표시
+                        "status": current_job_status
                     })
                 }
 
@@ -140,7 +144,8 @@ async def stream_events(job_id: str, request: Request):
                         "type": "final_summary",
                         "summary": job.get("structured_summary", {}),
                         "segment_count": len(past_segments),
-                        "is_historical": True
+                        "is_historical": True,
+                        "status": "COMPLETED"
                     })
                 }
                 return  # 스트림 종료
