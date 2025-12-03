@@ -1,10 +1,12 @@
 """
-Google Gemini API 서비스
+Google Gemini API 서비스 (New SDK: google-genai 적용)
 """
 
 import json
 from typing import Dict, Any
-import google.generativeai as genai
+# ✅ [변경 1] 새로운 SDK 임포트
+from google import genai
+from google.genai import types
 
 from .base_llm_service import BaseLLMService, LLMConnectionError, LLMResponseError
 from stt_api.core.config import settings
@@ -14,27 +16,31 @@ logger = get_logger(__name__)
 
 
 class GeminiService(BaseLLMService):
-    """Google Gemini API 서비스 구현"""
+    """Google Gemini API 서비스 구현 (New SDK)"""
 
     def __init__(self):
         self.api_key = settings.GEMINI_API_KEY
         self.model_name = settings.GEMINI_MODEL_NAME
-        self.model = None
+        self.client = None
 
         if self.api_key:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel(self.model_name)
+            # ✅ [변경 2] Client 인스턴스 생성 방식으로 변경
+            # (구버전의 genai.configure 및 genai.GenerativeModel 대체)
+            self.client = genai.Client(api_key=self.api_key)
 
     async def check_connection(self) -> bool:
         """Gemini API 연결 확인"""
         try:
             logger.info("Gemini API 연결 확인...")
 
-            if not self.api_key:
+            if not self.api_key or not self.client:
                 raise LLMConnectionError("GEMINI_API_KEY가 설정되지 않았습니다")
 
-            # 간단한 테스트 요청
-            response = self.model.generate_content("Test")
+            # ✅ [변경 3] 간단한 테스트 요청 (새로운 메서드 구조)
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents="Test"
+            )
 
             logger.info("Gemini API 연결 성공", model=self.model_name)
             return True
@@ -46,27 +52,23 @@ class GeminiService(BaseLLMService):
     async def get_summary(self, transcript: str) -> Dict[str, Any]:
         """
         Gemini로 텍스트 요약
-
-        Args:
-            transcript: 요약할 텍스트
-
-        Returns:
-            요약 결과 딕셔너리
         """
         logger.info("Gemini 요약 작업 시작...")
 
         try:
             prompt = self._build_summary_prompt(transcript)
 
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
+            # ✅ [변경 4] models.generate_content 호출 및 types.GenerateContentConfig 사용
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
                     temperature=0.0,
                     max_output_tokens=1024,
                 )
             )
 
-            # 응답 파싱
+            # 응답 파싱 (새 SDK도 .text 속성을 지원함)
             result_text = response.text.strip()
 
             # JSON 추출
@@ -82,21 +84,17 @@ class GeminiService(BaseLLMService):
     async def get_medical_summary(self, transcript: str) -> Dict[str, Any]:
         """
         Gemini로 의료 대화 요약
-
-        Args:
-            transcript: 의료 대화 텍스트
-
-        Returns:
-            구조화된 의료 요약
         """
         logger.info("Gemini 의료 요약 작업 시작...")
 
         try:
             prompt = self._build_medical_summary_prompt(transcript)
 
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
+            # ✅ [변경 5] 의료 요약 호출 부분도 동일하게 변경
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
                     temperature=0.0,
                     max_output_tokens=2048,
                 )
@@ -113,7 +111,7 @@ class GeminiService(BaseLLMService):
             raise LLMResponseError(f"Gemini 의료 요약 실패: {e}")
 
     def _build_summary_prompt(self, transcript: str) -> str:
-        """간단한 요약 프롬프트"""
+        """간단한 요약 프롬프트 (기존 유지)"""
         return f"""
                 아래 텍스트를 요약해주세요.
                 결과는 반드시 JSON 형식으로만 출력하세요.
@@ -132,7 +130,7 @@ class GeminiService(BaseLLMService):
                 """
 
     def _build_medical_summary_prompt(self, transcript: str) -> str:
-        """의료 대화 요약 프롬프트"""
+        """의료 대화 요약 프롬프트 (기존 유지)"""
         return f"""
                 당신은 의료 대화를 분석하는 전문 AI입니다.
                 다음 대화 내용을 분석하여 요약해주세요.
@@ -153,7 +151,7 @@ class GeminiService(BaseLLMService):
                 """
 
     def _parse_json_response(self, raw_response: str) -> Dict[str, Any]:
-        """JSON 응답 파싱"""
+        """JSON 응답 파싱 (기존 유지)"""
         import re
 
         if not raw_response:
