@@ -94,3 +94,4 @@ SQLAlchemy==2.0.36  # ORM (선택사항, 권장)
 alembic==1.14.0  # DB 마이그레이션 도구 (선택사항)
 google-cloud-speech>=2.34.0
 google-genai
+google-cloud-storage>=2.10.0

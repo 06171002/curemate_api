@@ -112,7 +112,9 @@ class Settings(BaseSettings):
 
     # Google Gemini API
     GEMINI_API_KEY: str = None
-    GEMINI_MODEL_NAME: str = "gemini-pro"
+    GEMINI_MODEL_NAME: str = "gemini-1.5-flash"
+
+    GOOGLE_GCS_BUCKET: str | None = None
 
     class Config:
         env_file = ".env"
