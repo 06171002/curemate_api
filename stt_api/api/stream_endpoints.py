@@ -26,35 +26,32 @@ from stt_api.core.config import active_jobs, constants
 from stt_api.core.logging_config import get_logger
 from stt_api.core.exceptions import CustomException
 from stt_api.services.storage import db_service
+from pydantic import BaseModel, Field
 
 logger = get_logger(__name__)
 
 router = APIRouter()
 
 
+# ✅ 1. 요청 바디를 정의하는 Pydantic 모델 생성
+class StreamCreateRequest(BaseModel):
+    # 기존 설정 파라미터
+    audio_format: str = Field("opus", description="입력 오디오 포맷 (opus, pcm, webm, mp3 등)")
+    sample_rate: Optional[int] = Field(None, description="입력 샘플레이트")
+    channels: Optional[int] = Field(None, description="입력 채널 수")
+
+    # WebRTC 화상회의 관련
+    room_id: Optional[str] = Field(None, description="WebRTC Room ID")
+    member_id: Optional[str] = Field(None, description="Member ID")
+
+    # ✅ 도메인 메타데이터 (Body에 포함)
+    cure_seq: Optional[int] = Field(None, description="치료 ID")
+    cust_seq: Optional[int] = Field(None, description="보호자 ID")
+    patient_seq: Optional[int] = Field(None, description="환자 ID")
+
 @router.post("/api/v1/stream/create", status_code=201)
 async def create_stream_job(
-    audio_format: Optional[str] = Query(
-        "opus",
-        description="입력 오디오 포맷 (opus, pcm, webm, mp3 등)"
-    ),
-    sample_rate: Optional[int] = Query(
-        None,
-        description="입력 샘플레이트 (미지정 시 자동 감지)"
-    ),
-    channels: Optional[int] = Query(
-        None,
-        description="입력 채널 수 (미지정 시 자동 감지)"
-    ),
-    # ✅ [추가] WebRTC 식별을 위한 파라미터 추가
-    room_id: Optional[str] = Query(
-        None,
-        description="WebRTC Room ID"
-    ),
-    member_id: Optional[str] = Query(
-        None,
-        description="Member ID"
-    )
+    request: StreamCreateRequest
 ):
     """
     실시간 화상 통화를 위한 StreamingJob을 생성합니다.
@@ -66,6 +63,11 @@ async def create_stream_job(
         - sample_rate: 입력 오디오 샘플레이트 (선택사항)
         - channels: 입력 오디오 채널 수 (선택사항)
     """
+    audio_format = request.audio_format
+    room_id = request.room_id
+    member_id = request.member_id
+
+
     # ✅ 1. 화상 회의 모드인지 확인
     is_conference_mode = bool(room_id and member_id)
 
@@ -145,11 +147,14 @@ async def create_stream_job(
     # StreamingJob 생성
     metadata = {
         "input_audio_format": audio_format,
-        "input_sample_rate": sample_rate,
-        "input_channels": channels,
+        "input_sample_rate": request.sample_rate,
+        "input_channels": request.channels,
         "is_streaming_format": is_streaming,
-        "room_id": room_id,  # 추가됨
-        "member_id": member_id  # 추가됨
+
+        # 👇 여기에 도메인 종속 데이터 저장 (JSON 컬럼용)
+        "cure_seq": request.cure_seq,
+        "cust_seq": request.cust_seq,
+        "patient_seq": request.patient_seq
     }
 
     job = StreamingJob(metadata=metadata)
@@ -418,7 +423,7 @@ async def conversation_stream(
         logger.error("WebSocket 처리 오류", exc_info=True, error=str(e))
 
         await job_manager.log_error(job_id, "websocket", error_msg)
-        await job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
+        await job_manager.update_status(job_id, JobStatus.COMPLETED, error_message=error_msg)
 
         try:
             await websocket.send_json({

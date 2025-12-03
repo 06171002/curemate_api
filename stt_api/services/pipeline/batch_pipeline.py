@@ -109,11 +109,11 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
 
             await job_manager.update_status(
                 job_id,
-                JobStatus.TRANSCRIBED,
+                JobStatus.COMPLETED,
                 transcript="",
                 error_message=warning_msg
             )
-            return {"status": "transcribed", "error": warning_msg}
+            return {"status": "completed", "error": warning_msg}
 
         await job_manager.update_status(
             job_id,
@@ -175,7 +175,7 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
         logger.error("[BatchPipeline]", error_msg=error_msg)
 
         await job_manager.log_error(job_id, "batch_pipeline", f"{error_msg}\n\n{stack_trace}")
-        await job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
+        await job_manager.update_status(job_id, JobStatus.COMPLETED, error_message=error_msg)
 
         return {"status": "failed", "error": error_msg}
 

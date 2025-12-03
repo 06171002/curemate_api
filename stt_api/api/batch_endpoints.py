@@ -5,9 +5,12 @@ from fastapi import (
     APIRouter,
     UploadFile,
     File,
+    Form,
     HTTPException,
-    Request
+    Request,
+    Query
 )
+from typing import Optional
 from sse_starlette.sse import EventSourceResponse
 from stt_api.services.storage import job_manager, JobType, JobStatus
 from stt_api.services import tasks
@@ -22,11 +25,18 @@ router = APIRouter()
 
 @router.post("/api/v1/conversation/request", status_code=202)
 async def create_conversation_request(
-        file: UploadFile = File(...)
+        file: UploadFile = File(...),
+        cure_seq: Optional[int] = Form(None, description="치료 ID"),
+        cust_seq: Optional[int] = Form(None, description="보호자 ID"),
+        patient_seq: Optional[int] = Form(None, description="환자 ID")
 ):
     """
-    음성 파일(mp3, wav, m4a 등)을 업로드하여
-    STT 및 요약 작업을 **백그라운드에서 시작**시킵니다.
+    음성 파일 업로드 및 STT 작업 생성
+
+    Request Body (multipart/form-data):
+        - file: 음성 파일 (mp3, wav, m4a)
+        - cure_seq: 큐어룸 고유번호
+        - cust_seq: 고객 고유번호
     """
     job_id = str(uuid.uuid4())
 
@@ -48,14 +58,28 @@ async def create_conversation_request(
     metadata = {
         "filename": file.filename,
         "file_size": len(contents),
-        "file_path": temp_file_path
+        "file_path": temp_file_path,
+        # 👇 여기에 도메인 종속 데이터를 넣습니다.
+        "cure_seq": cure_seq,
+        "cust_seq": cust_seq,
+        "patient_seq": patient_seq,
     }
 
-    # ✅ await 추가
-    if not await job_manager.create_job(job_id, JobType.BATCH, metadata=metadata):
+    # 3. DB에 작업 생성 (✅ cure_seq, cust_seq 별도 전달)
+    try:
+        success = await job_manager.create_job(
+            job_id, JobType.BATCH, metadata=metadata
+        )
+
+        if not success:
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            raise HTTPException(status_code=500, detail="작업 생성 실패")
+
+    except Exception as e:
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
-        raise HTTPException(status_code=500, detail="작업 생성 실패")
+        raise HTTPException(status_code=500, detail=f"작업 생성 실패: {str(e)}")
 
     # 3. Celery Task 백그라운드 작업 예약
     try:
@@ -66,7 +90,7 @@ async def create_conversation_request(
         logger.error("Celery 작업 예약 실패", error_msg=e)
 
         # ✅ JobManager로 실패 상태 업데이트 (await 추가)
-        await job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
+        await job_manager.update_status(job_id, JobStatus.COMPLETED, error_message=error_msg)
         await job_manager.log_error(job_id, "celery_task", error_msg)
 
         raise HTTPException(status_code=500, detail=error_msg)

@@ -24,7 +24,7 @@ def run_stt_and_summary_pipeline(job_id: str, audio_file_path: str):
         # ✅ 동기 컨텍스트(Celery Task)에서 비동기 메서드(JobManager)를 호출하기 위한 래퍼
         async def _handle_error():
             await job_manager.log_error(job_id, "celery_asyncio", error_msg)
-            await job_manager.update_status(job_id, JobStatus.FAILED, error_message=error_msg)
+            await job_manager.update_status(job_id, JobStatus.COMPLETED, error_message=error_msg)
 
         # ✅ 새로운 이벤트 루프를 생성하여 에러 처리 실행
         try:

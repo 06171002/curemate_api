@@ -165,13 +165,23 @@ def main():
         # 1. Job 생성 (오디오 포맷 명시)
         print("🔧 [단계 1/2] Job 생성 요청...")
 
+        payload = {
+            "audio_format": "pcm",  # 필수
+            "sample_rate": 48000,  # 선택 (PCM이라 권장)
+            "channels": 2,  # 선택 (PCM이라 권장)
+
+            # 👇 확인하고 싶은 값 추가
+            "cure_seq": 101,  # 테스트할 치료 ID
+            "cust_seq": 5004,  # 테스트할 환자 ID
+
+            # (필요시) 화상회의 정보
+            "room_id": "test_room",
+            "member_id": "tester"
+        }
+
         response = requests.post(
             f"{API_BASE_URL}/api/v1/stream/create",
-            params={
-                "audio_format": "pcm",  # 실제 보내는 데이터가 Raw PCM이므로 "pcm"으로 설정
-                "sample_rate": 48000,  # 서버 요구사항에 맞춤
-                "channels": 2 # 변환한 채널 수 명시
-            },
+            json=payload,
             timeout=10
         )
         response.raise_for_status()

@@ -102,8 +102,8 @@ class STTJob(Base):
     # 인덱스 정의
     __table_args__ = (
         Index('idx_job_type_status', 'job_type', 'status'),
-        Index('idx_reg_dttm', 'reg_dttm'),
-        {'comment': 'STT 작업 및 요약 상태 관리 테이블'}
+        Index('idx_room_member', 'room_id', 'member_id'),
+        {'comment': 'STT 작업 및 요약 상태 관리'}
     )
 
     def to_dict(self):

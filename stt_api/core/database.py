@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.pool import QueuePool
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from sqlalchemy import text

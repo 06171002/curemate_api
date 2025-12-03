@@ -41,10 +41,13 @@ class DatabaseService:
         job_type: str,
         metadata: Dict = None,
         room_id: str = None,  # ✅ 추가
-        member_id: str = None  # ✅ 추가
+        member_id: str = None,  # ✅ 추가
     ) -> bool:
         """
-        T_STT_JOB 테이블에 새로운 작업 생성
+        T_STT_JOB 생성
+
+        Args:
+            - REALTIME 모드: room_id, member_id 필수
         """
         try:
             async with get_transaction() as session:
@@ -427,6 +430,8 @@ class DatabaseService:
                 )
                 session.add(room)
                 await session.flush()  # room_seq 얻기 위해
+
+                await session.refresh(room)
 
                 logger.info("새 방 생성", room_id=room_id, room_seq=room.room_seq)
                 return room.to_dict()
