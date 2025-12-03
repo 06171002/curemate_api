@@ -197,6 +197,11 @@ async def stream_events(job_id: str, request: Request):
                     logger.info("[SSE] 최종 요약 전송 완료, 스트림 종료")
                     break
 
+                # 2. ✅ 에러 메시지 수신 시 (즉시 종료)
+                if event_type == "error":
+                    logger.warning("[SSE] 에러 이벤트 수신, 스트림 종료", error=message_data.get("message"))
+                    break
+
         except Exception as e:
             error_msg = f"스트리밍 중 오류: {str(e)}"
             logger.error("스트리밍 중 오류", error_msg=e)

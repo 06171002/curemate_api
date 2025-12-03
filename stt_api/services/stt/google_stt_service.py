@@ -1,5 +1,5 @@
 """
-Google Speech-to-Text 서비스 (파일 크기별 자동 선택)
+Google Speech-to-Text 서비스 (파일 크기/길이별 자동 선택)
 """
 
 import os
@@ -9,6 +9,7 @@ from google.cloud import speech_v1
 from google.cloud import storage
 from google.cloud.speech_v1 import types
 from typing import Optional, Generator, Tuple
+from pydub import AudioSegment
 
 from stt_api.core.config import settings
 from stt_api.core.logging_config import get_logger
@@ -129,6 +130,80 @@ def _delete_from_gcs(gcs_uri: str) -> None:
 
     except Exception as e:
         logger.warning("GCS 파일 삭제 실패 (무시)", error=str(e))
+
+
+# ==================== 파일 검증 ====================
+
+def _get_audio_duration(file_path: str) -> float:
+    """
+    오디오 파일 길이(초) 반환
+
+    Args:
+        file_path: 오디오 파일 경로
+
+    Returns:
+        파일 길이(초)
+    """
+    try:
+        audio = AudioSegment.from_file(file_path)
+        duration_seconds = len(audio) / 1000.0
+
+        logger.debug(
+            "오디오 길이 측정",
+            file_path=file_path,
+            duration_sec=round(duration_seconds, 2)
+        )
+
+        return duration_seconds
+
+    except Exception as e:
+        logger.warning(
+            "오디오 길이 측정 실패, 안전하게 비동기 API 사용",
+            error=str(e)
+        )
+        # 측정 실패 시 안전하게 61초 반환 (비동기 API 사용하도록)
+        return 61.0
+
+
+def _should_use_sync_api(file_path: str) -> bool:
+    """
+    동기 API 사용 가능 여부 판단
+
+    조건:
+    1. 파일 크기 ≤ 10MB
+    2. 파일 길이 ≤ 60초
+
+    Args:
+        file_path: 오디오 파일 경로
+
+    Returns:
+        True: 동기 API 사용 가능
+        False: 비동기 API 필요
+    """
+    # 1. 파일 크기 체크
+    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+
+    if file_size_mb > 10:
+        logger.info(
+            f"파일 크기 초과 ({file_size_mb:.2f}MB > 10MB), 비동기 API 필요"
+        )
+        return False
+
+    # 2. 파일 길이 체크
+    duration_sec = _get_audio_duration(file_path)
+
+    if duration_sec > 60:
+        logger.info(
+            f"파일 길이 초과 ({duration_sec:.1f}초 > 60초), 비동기 API 필요"
+        )
+        return False
+
+    # 둘 다 통과
+    logger.info(
+        f"동기 API 사용 가능 "
+        f"(크기: {file_size_mb:.2f}MB, 길이: {duration_sec:.1f}초)"
+    )
+    return True
 
 
 # ==================== 오디오 설정 ====================
@@ -303,21 +378,21 @@ def transcribe_audio(file_path: str) -> str:
     logger.info("Google STT 작업 시작", file_path=file_path)
 
     try:
-        # 파일 크기 체크
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        # ✅ 파일 크기와 길이 모두 체크
+        use_sync = _should_use_sync_api(file_path)
 
         # 자동 선택
-        if file_size_mb <= 10:
-            logger.info(f"짧은 파일 감지 ({file_size_mb:.2f}MB), 동기 API 사용")
+        if use_sync:
+            logger.info("조건 충족: 동기 API 사용")
             segments = list(_transcribe_sync(file_path))
         else:
-            logger.info(f"긴 파일 감지 ({file_size_mb:.2f}MB), 비동기 API 사용")
+            logger.info("조건 불충족: 비동기 API 사용 (GCS 필요)")
 
             gcs_bucket = settings.GOOGLE_GCS_BUCKET
             if not gcs_bucket:
                 raise STTProcessingError(
                     file_path=file_path,
-                    reason="긴 파일 처리를 위해 GOOGLE_GCS_BUCKET 설정이 필요합니다"
+                    reason="비동기 API를 위해 GOOGLE_GCS_BUCKET 설정이 필요합니다"
                 )
 
             segments = list(_transcribe_long_running(file_path, gcs_bucket))
@@ -328,7 +403,6 @@ def transcribe_audio(file_path: str) -> str:
         logger.info(
             "Google STT 작업 완료",
             file_path=file_path,
-            file_size_mb=round(file_size_mb, 2),
             transcript_length=len(full_transcript)
         )
 
@@ -354,21 +428,21 @@ def transcribe_audio_streaming(file_path: str) -> Generator[str, None, None]:
     logger.info("Google STT 스트리밍 작업 시작", file_path=file_path)
 
     try:
-        # 파일 크기 체크
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        # ✅ 파일 크기와 길이 모두 체크
+        use_sync = _should_use_sync_api(file_path)
 
         # 자동 선택
-        if file_size_mb <= 10:
-            logger.info(f"짧은 파일 감지 ({file_size_mb:.2f}MB), 동기 API 사용")
+        if use_sync:
+            logger.info("조건 충족: 동기 API 사용")
             yield from _transcribe_sync(file_path)
         else:
-            logger.info(f"긴 파일 감지 ({file_size_mb:.2f}MB), 비동기 API 사용")
+            logger.info("조건 불충족: 비동기 API 사용 (GCS 필요)")
 
             gcs_bucket = settings.GOOGLE_GCS_BUCKET
             if not gcs_bucket:
                 raise STTProcessingError(
                     file_path=file_path,
-                    reason="긴 파일 처리를 위해 GOOGLE_GCS_BUCKET 설정이 필요합니다"
+                    reason="비동기 API를 위해 GOOGLE_GCS_BUCKET 설정이 필요합니다"
                 )
 
             yield from _transcribe_long_running(file_path, gcs_bucket)

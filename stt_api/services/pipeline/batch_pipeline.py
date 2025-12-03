@@ -132,6 +132,14 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
                 transcript="",
                 error_message=warning_msg
             )
+
+            # ✅ [추가] 에러 이벤트 발행 -> SSE가 이를 받고 종료하게 됨
+            job_manager.publish_event(job_id, {
+                "type": "error",
+                "message": warning_msg,
+                "status": JobStatus.COMPLETED.value
+            })
+
             return {"status": "completed", "error": warning_msg}
 
         await job_manager.update_status(
@@ -156,8 +164,15 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
             logger.error("[BatchPipeline]", error_msg=error_msg)
             await job_manager.log_error(job_id, "batch_summary", f"{error_msg}\n\n{stack_trace}")
 
+            # ✅ [추가] 요약 실패 시에도 에러 이벤트 발행 (클라이언트 대기 해제용)
+            job_manager.publish_event(job_id, {
+                "type": "error",
+                "message": error_msg,
+                "status": JobStatus.COMPLETED.value  # STT는 성공했으므로 상태는 유지
+            })
+
             return {
-                "status": "transcribed",
+                "status": "completed",
                 "transcript": full_transcript,
                 "error": error_msg
             }
@@ -195,6 +210,13 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
 
         await job_manager.log_error(job_id, "batch_pipeline", f"{error_msg}\n\n{stack_trace}")
         await job_manager.update_status(job_id, JobStatus.COMPLETED, error_message=error_msg)
+
+        # ✅ [추가] 예외 발생 시에도 에러 이벤트 발행
+        job_manager.publish_event(job_id, {
+            "type": "error",
+            "message": error_msg,
+            "status": JobStatus.FAILED.value
+        })
 
         return {"status": "failed", "error": error_msg}
 
