@@ -24,9 +24,20 @@ class StreamPipeline:
         self.job = job
         self.segment_count = 0
 
-        # ✅ STT 엔진 확인
-        self.use_vad = settings.STT_ENGINE == "faster-whisper"
-        self.stt_engine = settings.STT_ENGINE
+        # ✅ mode 확인
+        mode = job.metadata.get("mode")
+
+        if mode == "google":
+            # Google STT 사용
+            from stt_api.services.stt.stt_factory import get_stt_service
+            self.stt_service = get_stt_service(mode="google")
+            self.stt_engine = "google"
+            logger.info("StreamPipeline: Google STT 사용")
+        else:
+            # 기존 로직
+            from stt_api.services.stt import stt_service
+            self.stt_service = stt_service
+            self.stt_engine = settings.STT_ENGINE
 
         # ✅ STT 병렬 처리를 위한 ThreadPoolExecutor
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
@@ -356,7 +367,16 @@ class StreamPipeline:
             summary_start = time.perf_counter()
             logger.info("요약 시작", job_id=self.job.job_id)
 
-            from stt_api.services.llm import llm_service
+            # ✅ mode에 따라 LLM 선택
+            mode = self.job.metadata.get("mode")
+
+            if mode == "google":
+                from stt_api.services.llm import get_llm_service
+                llm = get_llm_service(mode="google")
+                logger.info("StreamPipeline: Google Gemini 사용")
+            else:
+                from stt_api.services.llm import llm_service as llm
+
             summary_dict = await llm_service.get_summary(final_transcript)
             summary_duration = (time.perf_counter() - summary_start) * 1000
 

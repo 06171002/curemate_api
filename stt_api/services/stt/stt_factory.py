@@ -20,18 +20,32 @@ class STTService:
     설정에 따라 faster-whisper 또는 whisperlivekit을 사용
     """
 
-    def __init__(self):
-        self.engine_type = settings.STT_ENGINE
-        self._load_engine()
+    def __init__(self, mode: str = None):
+        """
+        Args:
+            mode: "google" 또는 None (기본 엔진 사용)
+        """
+        if mode == "google":
+            self.engine_type = "google"
+            self._load_google_engine()
+        else:
+            self.engine_type = settings.STT_ENGINE
+            self._load_default_engine()
 
-    def _load_engine(self):
-        """설정에 따라 엔진 로드"""
+    def _load_google_engine(self):
+        """Google STT 엔진 로드"""
+        from stt_api.services.stt import google_stt_service as engine
+        self._engine = engine
+        logger.info("STT 엔진 선택: Google Speech-to-Text")
+
+    def _load_default_engine(self):
+        """기본 엔진 로드 (기존 로직)"""
         if self.engine_type == "faster-whisper":
             from stt_api.services.stt import whisper_service as engine
             logger.info("STT 엔진 선택: faster-whisper (기존)")
         elif self.engine_type == "whisperlivekit":
             from stt_api.services.stt import whisperlive_service as engine
-            logger.info("STT 엔진 선택: WhisperLiveKit (신규)")
+            logger.info("STT 엔진 선택: WhisperLiveKit (기존)")
         else:
             raise ValueError(f"지원하지 않는 STT 엔진: {self.engine_type}")
 
@@ -92,3 +106,16 @@ def transcribe_segment_from_bytes(
         audio_bytes,
         initial_prompt
     )
+
+
+def get_stt_service(mode: str = None) -> STTService:
+    """
+    mode에 따라 적절한 STT 서비스 반환
+
+    Args:
+        mode: "google" 또는 None
+
+    Returns:
+        STTService 인스턴스
+    """
+    return STTService(mode=mode)

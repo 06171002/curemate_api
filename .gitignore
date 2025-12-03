@@ -21,3 +21,5 @@ temp_audio/
 # 5. 민감한 정보 (Secrets)
 # API 키, DB 비밀번호 등을 저장하는 .env 파일은 절대 커밋하지 않습니다.
 .env
+
+vernal-landing-480104-k2-3c6e6252bdb2.json

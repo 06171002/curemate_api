@@ -48,6 +48,7 @@ class StreamCreateRequest(BaseModel):
     cure_seq: Optional[int] = Field(None, description="치료 ID")
     cust_seq: Optional[int] = Field(None, description="보호자 ID")
     patient_seq: Optional[int] = Field(None, description="환자 ID")
+    mode: Optional[str] = Field(None, description="google 사용 시 Google STT + Gemini")
 
 @router.post("/api/v1/stream/create", status_code=201)
 async def create_stream_job(
@@ -154,7 +155,8 @@ async def create_stream_job(
         # 👇 여기에 도메인 종속 데이터 저장 (JSON 컬럼용)
         "cure_seq": request.cure_seq,
         "cust_seq": request.cust_seq,
-        "patient_seq": request.patient_seq
+        "patient_seq": request.patient_seq,
+        "mode": request.mode,
     }
 
     job = StreamingJob(metadata=metadata)

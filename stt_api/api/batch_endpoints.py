@@ -28,7 +28,8 @@ async def create_conversation_request(
         file: UploadFile = File(...),
         cure_seq: Optional[int] = Form(None, description="치료 ID"),
         cust_seq: Optional[int] = Form(None, description="보호자 ID"),
-        patient_seq: Optional[int] = Form(None, description="환자 ID")
+        patient_seq: Optional[int] = Form(None, description="환자 ID"),
+        mode: Optional[str] = Form(None, description="google 또는 None")
 ):
     """
     음성 파일 업로드 및 STT 작업 생성
@@ -63,6 +64,7 @@ async def create_conversation_request(
         "cure_seq": cure_seq,
         "cust_seq": cust_seq,
         "patient_seq": patient_seq,
+        "mode": mode,
     }
 
     # 3. DB에 작업 생성 (✅ cure_seq, cust_seq 별도 전달)

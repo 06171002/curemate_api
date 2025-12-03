@@ -27,6 +27,25 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
         # ========== 1. PROCESSING 상태 ==========
         await job_manager.update_status(job_id, JobStatus.PROCESSING)
 
+        # ✅ Job의 metadata에서 mode 가져오기
+        job = await job_manager.get_job(job_id)
+        mode = job.get("metadata", {}).get("mode")
+
+        # ✅ mode에 따라 서비스 선택
+        if mode == "google":
+            from stt_api.services.stt.stt_factory import get_stt_service
+            from stt_api.services.llm import get_llm_service
+
+            stt = get_stt_service(mode="google")
+            llm = get_llm_service(mode="google")
+
+            logger.info("[BatchPipeline] Google 모드로 실행")
+        else:
+            from stt_api.services.stt import whisper_service as stt
+            from stt_api.services.llm import llm_service as llm
+
+            logger.info("[BatchPipeline] 기본 모드로 실행")
+
         # ========== 2. STT 실행 (상태 포함 반환 로직 적용) ==========
         logger.info("[BatchPipeline] STT 시작...")
 

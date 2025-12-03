@@ -36,11 +36,11 @@ class Settings(BaseSettings):
     # ==================== 데이터베이스 설정 (MariaDB) ====================
 
     DB_TYPE: Literal["mariadb", "mysql", "postgresql"] = "mariadb"
-    DB_HOST: str = "210.116.103.144"
+    DB_HOST: str
     DB_PORT: int = 3306
     DB_NAME: str = "curemate"
     DB_USER: str = "uds"
-    DB_PASSWORD: str = "275506%)"
+    DB_PASSWORD: str
     DB_CHARSET: str = "utf8mb4"
 
     # 연결 풀 설정
@@ -105,6 +105,14 @@ class Settings(BaseSettings):
 
     # ==================== 로깅 설정 ====================
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+
+    # ==================== Google 서비스 설정 ====================
+    # Google Cloud 인증 (서비스 계정 JSON 파일 경로)
+    GOOGLE_APPLICATION_CREDENTIALS: str | None = None
+
+    # Google Gemini API
+    GEMINI_API_KEY: str = None
+    GEMINI_MODEL_NAME: str = "gemini-pro"
 
     class Config:
         env_file = ".env"

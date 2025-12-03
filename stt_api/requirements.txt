@@ -92,3 +92,5 @@ aiomysql==0.2.0  # 비동기 MySQL/MariaDB 드라이버
 pymysql==1.1.1  # 동기 MySQL/MariaDB 드라이버 (aiomysql 의존성)
 SQLAlchemy==2.0.36  # ORM (선택사항, 권장)
 alembic==1.14.0  # DB 마이그레이션 도구 (선택사항)
+google-cloud-speech==2.21.0
+google-generativeai==0.3.1
