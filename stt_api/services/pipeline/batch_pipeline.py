@@ -54,7 +54,7 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
 
         try:
             # 1. 제너레이터 생성
-            stt_generator = whisper_service.transcribe_audio_streaming(audio_file_path)
+            stt_generator = stt.transcribe_audio_streaming(audio_file_path)
 
             # 2. 첫 번째 세그먼트 미리 가져오기
             try:
@@ -147,7 +147,7 @@ async def run_batch_pipeline(job_id: str, audio_file_path: str) -> Dict[str, Any
         logger.info("[BatchPipeline] 요약 시작...")
 
         try:
-            summary_dict = await llm_service.get_summary(full_transcript)
+            summary_dict = await llm.get_summary(full_transcript)
 
         except Exception as summary_error:
             error_msg = f"요약 오류: {str(summary_error)}"

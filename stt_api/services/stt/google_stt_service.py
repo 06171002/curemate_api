@@ -2,9 +2,10 @@
 Google Speech-to-Text 서비스
 """
 
+import os
 from google.cloud import speech_v1
 from google.cloud.speech_v1 import types
-from typing import Optional, Generator
+from typing import Optional, Generator, Tuple
 import io
 
 from stt_api.core.config import settings
@@ -111,31 +112,28 @@ def transcribe_audio(file_path: str) -> str:
 
 def transcribe_audio_streaming(file_path: str) -> Generator[str, None, None]:
     """
-    Google STT 스트리밍 변환 (Long Running Recognition)
-
-    Args:
-        file_path: 오디오 파일 경로
-
-    Yields:
-        감지된 세그먼트 텍스트
+    Google STT 스트리밍 변환 (다양한 파일 형식 지원)
     """
     _ensure_model_loaded()
 
     logger.info("Google STT 스트리밍 작업 시작", file_path=file_path)
 
     try:
-        # GCS URI를 사용하는 경우
-        # audio = types.RecognitionAudio(uri=gcs_uri)
+        # ✅ 1. 파일 형식에 맞는 설정 가져오기
+        encoding_type, sample_rate = _get_audio_config(file_path)
 
-        # 로컬 파일 사용
+        logger.info(f"파일 포맷 감지: {encoding_type.name}, Sample Rate: {sample_rate}")
+
+        # 로컬 파일 읽기
         with io.open(file_path, "rb") as audio_file:
             content = audio_file.read()
 
         audio = types.RecognitionAudio(content=content)
 
+        # ✅ 2. 동적으로 설정된 인코딩 적용
         config = types.RecognitionConfig(
-            encoding=speech_v1.RecognitionConfig.AudioEncoding.LINEAR16,
-            sample_rate_hertz=16000,
+            encoding=encoding_type,
+            sample_rate_hertz=sample_rate,
             language_code="ko-KR",
             enable_automatic_punctuation=True,
         )
@@ -226,3 +224,24 @@ def transcribe_segment_from_bytes(
             error=str(e)
         )
         raise STTProcessingError(file_path="[memory_bytes]", reason=str(e))
+
+def _get_audio_config(file_path: str) -> Tuple[speech_v1.RecognitionConfig.AudioEncoding, int]:
+    """
+    파일 확장자를 기반으로 Google STT 인코딩 포맷과 샘플레이트를 결정합니다.
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+
+    if ext == ".mp3":
+        return speech_v1.RecognitionConfig.AudioEncoding.MP3, 44100
+    elif ext == ".wav":
+        # WAV 파일은 보통 LINEAR16 (헤더 포함된 PCM)
+        return speech_v1.RecognitionConfig.AudioEncoding.LINEAR16, 16000
+    elif ext == ".flac":
+        return speech_v1.RecognitionConfig.AudioEncoding.FLAC, 16000
+    elif ext == ".ogg":
+        # OGG는 보통 OPUS 코덱을 사용 (음성 데이터인 경우)
+        return speech_v1.RecognitionConfig.AudioEncoding.OGG_OPUS, 16000
+    else:
+        # 지원하지 않거나 알 수 없는 포맷인 경우 기본값(MP3) 또는 예외 처리
+        logger.warning(f"지원하지 않는 확장자입니다: {ext}. MP3로 시도합니다.")
+        return speech_v1.RecognitionConfig.AudioEncoding.MP3, 44100

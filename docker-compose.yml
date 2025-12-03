@@ -36,5 +36,13 @@ services:
     command: python -m celery -A stt_api.core.celery_config.celery_app worker --loglevel=info -c 4
     volumes:
       - .:/app
+      - ./vernal-landing-480104-k2-3c6e6252bdb2.json:/app/google-key.json
     depends_on:
       - redis
+    environment: # ✅ [추가 2] 환경 변수 설정이 필요합니다.
+      - DB_HOST=${DB_HOST:-210.116.103.144}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_NAME=${DB_NAME:-curemate}
+      - DB_USER=${DB_USER:-uds}
+      - DB_PASSWORD=${DB_PASSWORD:-275506%)}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/google-key.json
