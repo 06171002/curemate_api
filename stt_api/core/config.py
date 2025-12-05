@@ -140,7 +140,7 @@ class Constants:
     VAD_FRAME_DURATION_MS = 30
     VAD_AGGRESSIVENESS = 3
     VAD_MIN_SPEECH_FRAMES = 15  # 최소 음성 길이 (90ms)
-    VAD_MAX_SILENCE_FRAMES = 30  # 침묵 감지 시간 (150ms)
+    VAD_MAX_SILENCE_FRAMES = 15  # 침묵 감지 시간 (150ms)
 
     # 파일 형식
     ALLOWED_AUDIO_EXTENSIONS = ["mp3", "wav", "m4a", "ogg", "flac"]
