@@ -393,21 +393,37 @@ async def conversation_stream(
             chunks_received=chunk_count
         )
 
-        # ✅ 남은 버퍼 처리 (비스트리밍 포맷의 경우 여기서 전체 변환)
+        # ✅ 남은 버퍼 처리 (패딩 및 프레임 분할 통합)
         try:
             remaining_audio = audio_converter.flush()
             if remaining_audio:
-                logger.info(
-                    "남은 오디오 버퍼 처리",
-                    bytes=len(remaining_audio),
-                    is_streaming=is_streaming
-                )
+                # 1. 프레임 크기 계산 (960 bytes)
+                frame_size = int(constants.VAD_SAMPLE_RATE * (constants.VAD_FRAME_DURATION_MS / 1000.0) * 2)
 
-                # ✅ 비스트리밍 포맷: 변환된 전체 PCM을 30ms 청크로 분할
-                if not is_streaming:
-                    frame_size = constants.VAD_SAMPLE_RATE * (constants.VAD_FRAME_DURATION_MS / 1000.0) * 2
-                    frame_size = int(frame_size)
+                if is_streaming:
+                    # -------------------------------------------------------
+                    # [Case A] 스트리밍 포맷 (Opus, PCM 등)
+                    # -> 자투리가 남으면 패딩(0)을 채워서 처리
+                    # -------------------------------------------------------
+                    if len(remaining_audio) < frame_size:
+                        padding_size = frame_size - len(remaining_audio)
+                        remaining_audio += b'\x00' * padding_size  # 부족한 만큼 무음 추가
 
+                        logger.info(
+                            "남은 오디오 패딩 적용",
+                            original_bytes=len(remaining_audio) - padding_size,
+                            padded_bytes=len(remaining_audio)
+                        )
+
+                    # 패딩된 프레임(또는 딱 맞는 프레임) 처리
+                    async for result in pipeline.process_audio_chunk(remaining_audio):
+                        pass
+
+                else:
+                    # -------------------------------------------------------
+                    # [Case B] 비스트리밍 포맷 (MP3, AAC 등)
+                    # -> 전체 파일을 프레임 단위(960bytes)로 쪼개서 처리
+                    # -------------------------------------------------------
                     total_frames = len(remaining_audio) // frame_size
                     logger.info(
                         "전체 파일 변환 완료, 프레임 분할 시작",
@@ -415,21 +431,13 @@ async def conversation_stream(
                         total_frames=total_frames
                     )
 
-                    # ✅ 프레임별로 VAD/STT 처리 (WebSocket 끊김과 관계없이)
                     for i in range(0, len(remaining_audio), frame_size):
-                        frame = remaining_audio[i:i+frame_size]
+                        frame = remaining_audio[i:i + frame_size]
                         if len(frame) < frame_size:
-                            break  # 마지막 불완전한 프레임 제외
+                            break  # 마지막 불완전 프레임은 버림 (비스트리밍은 데이터가 충분하므로)
 
-                        # ✅ 결과를 큐에만 넣고 전송은 시도하지 않음
                         async for result in pipeline.process_audio_chunk(frame):
-                            # WebSocket이 끊긴 상태이므로 전송 불가
-                            # 결과는 파이프라인 내부에 쌓임
                             pass
-                else:
-                    # 스트리밍 포맷: 남은 데이터 그대로 처리
-                    async for result in pipeline.process_audio_chunk(remaining_audio):
-                        pass
 
         except Exception as e:
             logger.warning("남은 버퍼 처리 실패", error=str(e))

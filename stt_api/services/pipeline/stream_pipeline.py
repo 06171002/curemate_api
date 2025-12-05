@@ -282,8 +282,17 @@ class StreamPipeline:
                     )
 
                     if "error" not in result and result.get("text"):
-                        self.job.current_prompt_context += " " + result["text"]
-                        self.job.full_transcript.append(result["text"])
+                        text = result["tesx"]
+                        self.job.current_prompt_context += " " + text
+                        self.job.full_transcript.append(text)
+
+                        # ✅ [추가됨] 종료 후 처리된 세그먼트도 DB에 저장
+                        await job_manager.save_segment(
+                            job_id=self.job.job_id,
+                            segment_text=text,
+                            start_time=result.get("relative_time_sec"),
+                            end_time=None
+                        )
 
                         logger.info(
                             "STT 결과 수신",
