@@ -477,6 +477,34 @@ async def conversation_stream(
             del active_jobs[job_id]
             logger.info("스트림 작업 제거됨 (메모리 정리)", job_id=job_id)
 
+        # ✅ 화상 회의 모드인 경우 자동 요약 트리거 확인
+        job = await job_manager.get_job(job_id)
+        room_id = job.get("room_id")
+
+        if room_id:
+            logger.info(
+                "화상 회의 작업 종료, 자동 요약 확인",
+                job_id=job_id,
+                room_id=room_id,
+                final_status=job.get("status")
+            )
+
+            # ✅ 모든 참가자의 작업이 완료되었는지 확인
+            triggered = await job_manager.check_and_trigger_room_summary(room_id)
+
+            if triggered:
+                logger.info(
+                    "방 통합 요약 트리거됨 (모든 작업 완료)",
+                    room_id=room_id,
+                    completed_job_id=job_id
+                )
+            else:
+                logger.info(
+                    "방 통합 요약 대기 중 (다른 작업 진행 중)",
+                    room_id=room_id,
+                    completed_job_id=job_id
+                )
+
 
 # ==================== 방 정보 조회 엔드포인트 추가 ====================
 
@@ -535,3 +563,93 @@ async def get_stream_stats(job_id: str):
         "segment_count": len(job.full_transcript),
         "transcript_preview": " ".join(job.full_transcript[-3:])  # 최근 3개 세그먼트
     }
+
+
+@router.get("/api/v1/stream/room/{room_id}/status")
+async def get_room_summary_status(room_id: str):
+    """
+    방의 요약 준비 상태 조회
+
+    Returns:
+        작업 상태 집계 및 요약 가능 여부
+    """
+    try:
+        status_summary = await job_manager.get_room_job_status_summary(room_id)
+        is_ready = await job_manager.is_room_ready_for_summary(room_id)
+
+        room_info = await job_manager.get_room_info(room_id)
+
+        if not room_info:
+            raise HTTPException(
+                status_code=404,
+                detail=f"방 '{room_id}'를 찾을 수 없습니다"
+            )
+
+        return {
+            "room_id": room_id,
+            "job_status_summary": status_summary,
+            "is_ready_for_summary": is_ready,
+            "has_summary": room_info.get("total_summary") is not None,
+            "room_info": room_info
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "방 상태 조회 실패",
+            exc_info=True,
+            room_id=room_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"방 상태 조회 실패: {str(e)}"
+        )
+
+
+@router.post("/api/v1/stream/room/{room_id}/summarize")
+async def create_room_summary(room_id: str):
+    """
+    방 통합 요약 수동 생성 (또는 재생성)
+    """
+    try:
+        # 준비 상태 확인
+        is_ready = await job_manager.is_room_ready_for_summary(room_id)
+
+        if not is_ready:
+            status_summary = await job_manager.get_room_job_status_summary(room_id)
+
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "ROOM_NOT_READY",
+                    "message": "아직 진행 중인 작업이 있습니다",
+                    "status_summary": status_summary
+                }
+            )
+
+        # 요약 트리거
+        from stt_api.services.tasks import generate_room_summary_task
+        task = generate_room_summary_task.delay(room_id)
+
+        return {
+            "room_id": room_id,
+            "task_id": task.id,
+            "status": "triggered",
+            "message": "통합 요약이 백그라운드에서 생성됩니다"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "수동 요약 트리거 실패",
+            exc_info=True,
+            room_id=room_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"요약 생성 실패: {str(e)}"
+        )

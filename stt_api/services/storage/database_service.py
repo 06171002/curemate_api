@@ -604,5 +604,173 @@ class DatabaseService:
             )
             return None
 
+    async def get_room_job_status_summary(
+            self,
+            room_id: str
+    ) -> Dict[str, int]:
+        """
+        방의 모든 작업 상태 집계
+
+        Returns:
+            {
+                "total": 5,
+                "pending": 0,
+                "processing": 0,
+                "transcribed": 2,
+                "completed": 3,
+                "failed": 0
+            }
+        """
+        try:
+            async with get_transaction() as session:
+                from sqlalchemy import func, case
+
+                # 상태별 카운트 쿼리
+                stmt = (
+                    select(
+                        func.count().label('total'),
+                        func.sum(
+                            case((STTJob.status == "PENDING", 1), else_=0)
+                        ).label('pending'),
+                        func.sum(
+                            case((STTJob.status == "PROCESSING", 1), else_=0)
+                        ).label('processing'),
+                        func.sum(
+                            case((STTJob.status == "TRANSCRIBED", 1), else_=0)
+                        ).label('transcribed'),
+                        func.sum(
+                            case((STTJob.status == "COMPLETED", 1), else_=0)
+                        ).label('completed'),
+                        func.sum(
+                            case((STTJob.status == "FAILED", 1), else_=0)
+                        ).label('failed'),
+                    )
+                    .where(STTJob.room_id == room_id)
+                )
+
+                result = await session.execute(stmt)
+                row = result.one()
+
+                summary = {
+                    "total": row.total or 0,
+                    "pending": row.pending or 0,
+                    "processing": row.processing or 0,
+                    "transcribed": row.transcribed or 0,
+                    "completed": row.completed or 0,
+                    "failed": row.failed or 0
+                }
+
+                logger.debug(
+                    "방 작업 상태 집계",
+                    room_id=room_id,
+                    summary=summary
+                )
+
+                return summary
+
+        except Exception as e:
+            logger.error(
+                "방 작업 상태 집계 실패",
+                exc_info=True,
+                room_id=room_id,
+                error=str(e)
+            )
+            return {"total": 0}
+
+    async def is_room_ready_for_summary(self, room_id: str) -> bool:
+        """
+        방이 통합 요약 가능한 상태인지 확인
+
+        조건:
+        1. 최소 1개 이상의 작업 존재
+        2. 모든 작업이 TRANSCRIBED 또는 COMPLETED 상태
+        3. PENDING/PROCESSING 상태 작업 없음
+
+        Returns:
+            True: 요약 가능
+            False: 아직 진행 중인 작업 있음
+        """
+        try:
+            summary = await self.get_room_job_status_summary(room_id)
+
+            total = summary["total"]
+            pending = summary["pending"]
+            processing = summary["processing"]
+            ready = summary["transcribed"] + summary["completed"]
+
+            # 조건 확인
+            is_ready = (
+                    total > 0 and  # 작업이 하나 이상 있어야 함
+                    pending == 0 and  # PENDING 없음
+                    processing == 0 and  # PROCESSING 없음
+                    ready == total  # 모든 작업이 완료됨
+            )
+
+            logger.info(
+                "방 요약 준비 상태 확인",
+                room_id=room_id,
+                is_ready=is_ready,
+                total=total,
+                pending=pending,
+                processing=processing,
+                ready=ready
+            )
+
+            return is_ready
+
+        except Exception as e:
+            logger.error(
+                "방 요약 준비 상태 확인 실패",
+                exc_info=True,
+                room_id=room_id,
+                error=str(e)
+            )
+            return False
+
+    async def update_room_summary(
+            self,
+            room_id: str,
+            summary: Dict[str, Any]
+    ) -> bool:
+        """
+        방의 통합 요약 업데이트
+
+        Args:
+            room_id: 방 ID
+            summary: 통합 요약 JSON
+
+        Returns:
+            성공 여부
+        """
+        try:
+            async with get_transaction() as session:
+                stmt = (
+                    update(STTRoom)
+                    .where(STTRoom.room_id == room_id)
+                    .values(
+                        total_summary=summary,
+                        upd_dttm=datetime.now(),
+                        upd_id="system"
+                    )
+                )
+
+                result = await session.execute(stmt)
+
+                if result.rowcount == 0:
+                    logger.warning("업데이트할 방을 찾을 수 없음", room_id=room_id)
+                    return False
+
+                logger.info("방 통합 요약 DB 저장 완료", room_id=room_id)
+                return True
+
+        except Exception as e:
+            logger.error(
+                "방 통합 요약 저장 실패",
+                exc_info=True,
+                room_id=room_id,
+                error=str(e)
+            )
+            return False
+
 # 전역 인스턴스 생성
 db_service = DatabaseService()

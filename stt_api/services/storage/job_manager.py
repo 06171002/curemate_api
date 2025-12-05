@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import asyncio
 from .database_service import db_service
 from . import cache_service
@@ -387,6 +387,84 @@ class JobManager:
                 exc_info=True
             )
             raise JobCreationError(job_id=job_id, reason=str(e))
+
+    async def get_room_job_status_summary(
+            self,
+            room_id: str
+    ) -> Dict[str, int]:
+        """방의 모든 작업 상태 집계"""
+        return await self.db.get_room_job_status_summary(room_id)
+
+    async def is_room_ready_for_summary(self, room_id: str) -> bool:
+        """방이 통합 요약 가능한 상태인지 확인"""
+        return await self.db.is_room_ready_for_summary(room_id)
+
+    async def check_and_trigger_room_summary(self, room_id: str) -> bool:
+        """
+        ✅ 개선: 방의 모든 작업이 완료되었는지 확인 후 요약 트리거
+
+        Args:
+            room_id: 방 ID
+
+        Returns:
+            True: 요약 트리거됨
+            False: 아직 진행 중인 작업 있음
+        """
+        try:
+            # ✅ 방의 모든 작업이 완료되었는지 확인
+            is_ready = await self.is_room_ready_for_summary(room_id)
+
+            if not is_ready:
+                # 상태 로그
+                status_summary = await self.get_room_job_status_summary(room_id)
+
+                logger.info(
+                    "방 요약 대기 중 (아직 진행 중인 작업 있음)",
+                    room_id=room_id,
+                    status_summary=status_summary
+                )
+                return False
+
+            # ✅ 모든 작업 완료! 요약 트리거
+            logger.info(
+                "방의 모든 작업 완료 감지, 통합 요약 트리거",
+                room_id=room_id
+            )
+
+            # 백그라운드 Task로 요약 생성
+            from stt_api.services.tasks import generate_room_summary_task
+            generate_room_summary_task.delay(room_id)
+
+            return True
+
+        except Exception as e:
+            logger.error(
+                "요약 트리거 확인 실패",
+                exc_info=True,
+                room_id=room_id,
+                error=str(e)
+            )
+            return False
+
+    async def get_completed_room_transcripts(
+            self,
+            room_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        방의 완료된 모든 대화록 조회 (통합 요약용)
+        """
+        return await self.db.get_completed_room_transcripts(room_id)
+
+    async def update_room_summary(
+            self,
+            room_id: str,
+            summary: Dict[str, Any]
+    ) -> bool:
+        """
+        방의 통합 요약 업데이트
+        """
+        return await self.db.update_room_summary(room_id, summary)
+
 
 # ==================== 전역 인스턴스 ====================
 
