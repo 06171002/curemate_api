@@ -17,7 +17,10 @@ from fastapi import (
     Query
 )
 from typing import Optional
+import wave
+import os
 
+from stt_api.core.config import settings
 from stt_api.domain.streaming_job import StreamingJob
 from stt_api.services.pipeline import StreamPipeline
 from stt_api.services.storage import job_manager, JobType, JobStatus
@@ -285,12 +288,24 @@ async def conversation_stream(
     input_sample_rate = job.metadata.get("input_sample_rate") or 48000
     input_channels = job.metadata.get("input_channels") or 2
 
+    # [디버깅용] 파일 저장 준비 (temp_audio 폴더에 저장)
+    debug_filename = f"debug_{job_id}.wav"
+    debug_file_path = os.path.join(settings.TEMP_AUDIO_DIR, debug_filename)
+
+    # 16k, 1ch, 16bit PCM 포맷으로 WAV 파일 열기
+    debug_wav = wave.open(debug_file_path, "wb")
+    debug_wav.setnchannels(1)  # 1 채널 (Mono)
+    debug_wav.setsampwidth(2)  # 2 Bytes (16-bit)
+    debug_wav.setframerate(16000)  # 16000 Hz
+
     try:
         audio_converter = AudioStreamConverter(
             target_sample_rate=constants.VAD_SAMPLE_RATE,
             target_frame_duration_ms=constants.VAD_FRAME_DURATION_MS,
             input_format=audio_format,
             is_streaming_format=is_streaming,  # ✅ 추가
+            input_sample_rate=input_sample_rate,
+            input_channels=input_channels
         )
 
         logger.info(
@@ -323,6 +338,27 @@ async def conversation_stream(
             # WebRTC에서 원본 오디오 수신
             raw_audio_chunk = await websocket.receive_bytes()
             chunk_count += 1
+
+            # [디버깅 1] 받은 데이터를 그대로 WAV 파일에 기록
+            try:
+                debug_wav.writeframes(raw_audio_chunk)
+            except Exception as e:
+                logger.error("디버깅 파일 쓰기 실패", error=str(e))
+
+            # [디버깅 2] 데이터 샘플링 로그 (처음 5개 패킷만 상세 확인)
+            if chunk_count <= 5:
+                import numpy as np
+                # int16으로 해석 시도
+                data_np = np.frombuffer(raw_audio_chunk, dtype=np.int16)
+                logger.info(
+                    "수신 데이터 분석",
+                    chunk_num=chunk_count,
+                    bytes_len=len(raw_audio_chunk),
+                    min_val=data_np.min() if len(data_np) > 0 else 0,
+                    max_val=data_np.max() if len(data_np) > 0 else 0,
+                    mean_val=data_np.mean() if len(data_np) > 0 else 0,
+                    first_10_bytes=list(raw_audio_chunk[:10])  # 헤더 존재 여부 확인용
+                )
 
             # ★ 핵심: 원본 오디오를 VAD 요구사항에 맞게 변환
             try:

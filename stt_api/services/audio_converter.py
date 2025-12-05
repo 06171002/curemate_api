@@ -92,14 +92,14 @@ class AudioStreamConverter:
     def _init_pyav(self):
         """PyAV 디코더 초기화 (Opus/WebM용)"""
         try:
-            # 코덱 생성
-            codec_name = "libopus" if self.input_format == "opus" else "vp8"
-            self.decoder = av.CodecContext.create(codec_name, "r")
-
-            # Opus 전용 설정
+            # ✅ [핵심 수정] Opus는 Parser를 통해 처리해야 함
             if self.input_format == "opus":
-                self.decoder.sample_rate = 48000
-                self.decoder.channels = 2
+                # Opus 디코더 생성 (옵션 없이)
+                self.decoder = av.CodecContext.create("libopus", "r")
+
+            else:  # webm
+                codec_name = "vp8"
+                self.decoder = av.CodecContext.create(codec_name, "r")
 
             # 리샘플러 생성
             self.resampler = av.AudioResampler(
@@ -108,7 +108,7 @@ class AudioStreamConverter:
                 rate=self.target_sample_rate
             )
 
-            logger.info("PyAV 디코더 초기화 완료", codec=codec_name)
+            logger.info("PyAV 디코더 초기화 완료", codec=self.input_format)
 
         except Exception as e:
             logger.warning(f"PyAV 초기화 실패, Pydub로 폴백: {e}")

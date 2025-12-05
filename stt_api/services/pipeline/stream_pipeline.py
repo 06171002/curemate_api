@@ -23,6 +23,7 @@ class StreamPipeline:
     def __init__(self, job: StreamingJob, max_workers: int = 3):
         self.job = job
         self.segment_count = 0
+        self.use_vad = self.job.use_vad
 
         # ✅ mode 확인
         mode = job.metadata.get("mode")
