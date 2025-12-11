@@ -280,15 +280,20 @@ def transcribe_segment_from_bytes(
             beam_size=settings.STT_BEAM_SIZE,  # ✅ 1로 설정 시 가장 빠름
             best_of=1,  # ✅ 샘플링 횟수 최소화
             temperature=0.0,  # ✅ 그리디 디코딩
-            compression_ratio_threshold=None,
-            log_prob_threshold=None,
-            no_speech_threshold=0.8,
+            compression_ratio_threshold=2.4,
+            log_prob_threshold=-1.0,
+            no_speech_threshold=0.6,
             condition_on_previous_text=bool(initial_prompt),  # ✅ 문맥 활용
         )
 
         # 3. 결과 수집
         segment_texts = [seg.text.strip() for seg in segments]
         result_text = " ".join(segment_texts)
+
+        # ✅ [추가] 후처리: 반복 텍스트 필터링
+        if _is_hallucination(result_text):
+            logger.warning(f"환각 텍스트 감지되어 무시됨: {result_text}")
+            return ""
 
         total_time = (time.perf_counter() - total_start) * 1000
 
@@ -317,3 +322,24 @@ def transcribe_segment_from_bytes(
             file_path="[memory_bytes]",
             reason=str(e)
         )
+
+
+# ✅ [추가] 헬퍼 함수
+def _is_hallucination(text: str) -> bool:
+    if not text:
+        return False
+
+    # 1. 특정 반복 패턴 강제 차단
+    ban_list = ["아...", "아 아", "오오", "코코", "MBC", "구독", "좋아요"]
+    for ban in ban_list:
+        if text.count(ban) >= 2:  # 2번 이상 반복되면 차단
+            return True
+
+    # 2. 문자 다양성 체크 (길이에 비해 사용된 문자가 너무 적으면 반복으로 간주)
+    # 예: "ㅋㅋㅋㅋㅋㅋ" -> 길이 6, 고유문자 1({'ㅋ'}) -> 비율 0.16
+    if len(text) > 10:
+        unique_ratio = len(set(text.replace(" ", ""))) / len(text)
+        if unique_ratio < 0.2:  # 고유 문자가 20% 미만이면 환각일 확률 높음
+            return True
+
+    return False
