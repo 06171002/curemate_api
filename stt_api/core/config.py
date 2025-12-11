@@ -77,7 +77,7 @@ class Settings(BaseSettings):
 
     # ==================== STT 설정 ====================
     STT_ENGINE: Literal["faster-whisper", "whisperlivekit"] = "faster-whisper"
-    STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
+    STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "base"
     STT_DEVICE_TYPE: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     STT_LANGUAGE: str = "ko"
 
