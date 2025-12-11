@@ -258,6 +258,19 @@ def transcribe_segment_from_bytes(
         audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
         audio_float32 = audio_np.astype(np.float32) / 32768.0
 
+        # ✅ 1-1. 소음 감지 (RMS 에너지 체크)
+        rms_energy = np.sqrt(np.mean(audio_float32 ** 2))
+
+        # RMS가 너무 낮으면 소음으로 간주 (조정 가능)
+        MIN_RMS_THRESHOLD = 0.01
+        if rms_energy < MIN_RMS_THRESHOLD:
+            logger.debug(
+                "세그먼트 건너뜀 (소음 감지)",
+                rms_energy=round(rms_energy, 4),
+                threshold=MIN_RMS_THRESHOLD
+            )
+            return ""
+
         # 2. STT 실행 (최적화된 파라미터)
         segments, info = _model.transcribe(
             audio_float32,
