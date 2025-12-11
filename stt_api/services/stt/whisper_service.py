@@ -269,7 +269,7 @@ def transcribe_segment_from_bytes(
             temperature=0.0,  # ✅ 그리디 디코딩
             compression_ratio_threshold=None,
             log_prob_threshold=None,
-            no_speech_threshold=None,
+            no_speech_threshold=0.8,
             condition_on_previous_text=bool(initial_prompt),  # ✅ 문맥 활용
         )
 

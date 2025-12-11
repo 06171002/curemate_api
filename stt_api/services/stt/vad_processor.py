@@ -18,8 +18,8 @@ class VADProcessor:
                  sample_rate=constants.VAD_SAMPLE_RATE,
                  frame_duration_ms=constants.VAD_FRAME_DURATION_MS,
                  vad_aggressiveness=constants.VAD_AGGRESSIVENESS,
-                 min_speech_frames=3,
-                 max_silence_frames=5):
+                 min_speech_frames=constants.VAD_MIN_SPEECH_FRAMES,
+                 max_silence_frames=constants.VAD_MAX_SILENCE_FRAMES):
         if sample_rate not in [8000, 16000, 32000, 48000]:
             # ✅ CustomException 사용
             raise AudioFormatError(
