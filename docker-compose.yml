@@ -30,6 +30,13 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-275506%)}
       - GOOGLE_APPLICATION_CREDENTIALS=/app/google-key.json
       - GEMINI_API_KEY=AIzaSyDSZlPNnwcwxG6MUfDX_QRTrImQN8VUlKk
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
 
   # 3. Celery 워커 서비스 (★ Windows 오류 해결!)
   worker:
@@ -48,3 +55,10 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-275506%)}
       - GOOGLE_APPLICATION_CREDENTIALS=/app/google-key.json
       - GEMINI_API_KEY=AIzaSyDSZlPNnwcwxG6MUfDX_QRTrImQN8VUlKk
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
