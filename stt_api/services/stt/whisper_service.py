@@ -283,7 +283,7 @@ def transcribe_segment_from_bytes(
             compression_ratio_threshold=2.4,
             log_prob_threshold=-1.0,
             no_speech_threshold=0.6,
-            condition_on_previous_text=bool(initial_prompt),  # ✅ 문맥 활용
+            condition_on_previous_text=False,
         )
 
         # 3. 결과 수집
