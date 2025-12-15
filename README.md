@@ -213,3 +213,45 @@ sequenceDiagram
     P->>DB: Update Job (COMPLETED, Summary)
     API-->>C: Send Final Result {"type": "final_summary"}
 ```
+
+```mermaid
+sequenceDiagram
+    participant C as Client (WebRTC)
+    participant Main as Main Thread<br/>(Event Loop)
+    participant Q as Internal Queue
+    participant Worker as Worker Thread<br/>(ThreadPool)
+    participant DB as MariaDB
+
+    Note over C, Main: ⚡ Main Thread: Non-blocking I/O
+    
+    loop Audio Stream (Real-time)
+        C->>Main: Send Audio Chunk
+        activate Main
+        Main->>Main: 1. Convert Audio (PCM)
+        Main->>Main: 2. Check VAD (Silero)
+        
+        alt Voice Detected
+            Main->>Q: Enqueue Segment
+            Note right of Q: (Main Thread continues receiving next audio without waiting)
+        end
+        
+        Main->>Main: 3. Check Result Queue
+        
+        alt STT Result Ready
+            Main->>DB: Save Segment (Insert)
+            Main-->>C: Send JSON Result
+        end
+        deactivate Main
+    end
+
+    par Background Processing
+        loop STT Worker
+            Q->>Worker: Dequeue Segment
+            activate Worker
+            Note over Worker: 🐢 Heavy CPU Task
+            Worker->>Worker: Whisper Inference
+            Worker-->>Main: Return Text (via Result Queue)
+            deactivate Worker
+        end
+    end
+```
