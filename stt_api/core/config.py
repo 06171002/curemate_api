@@ -78,12 +78,12 @@ class Settings(BaseSettings):
     # ==================== STT 설정 ====================
     STT_ENGINE: Literal["faster-whisper", "whisperlivekit"] = "faster-whisper"
     STT_MODEL_SIZE: Literal["tiny", "base", "small", "medium", "large-v3"] = "base"
-    STT_DEVICE_TYPE: Literal["auto", "cpu", "cuda", "mps"] = "auto"
+    STT_DEVICE_TYPE: Literal["auto", "cpu", "cuda", "mps"] = "cuda"
     STT_LANGUAGE: str = "ko"
 
     # ✅ STT 성능 최적화 옵션
     STT_BEAM_SIZE: int = 1  # 빔 서치 크기 (1=greedy, 5=default)
-    STT_COMPUTE_TYPE: str = "int8"  # int8, float16, float32
+    STT_COMPUTE_TYPE: str = "float16"  # int8, float16, float32
 
     WHISPERLIVE_USE_DIARIZATION: bool = False
 

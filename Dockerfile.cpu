@@ -1,0 +1,32 @@
+# 1. 가벼운 Python 3.12 공식 이미지 사용 (Debian 기반)
+FROM python:3.12-slim
+
+# 2. 환경 설정
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 3. 필수 시스템 패키지 설치
+# (slim 이미지에는 gcc 등이 없으므로 build-essential 필수)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ffmpeg \
+    git \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# 4. 작업 디렉터리 설정
+WORKDIR /app
+
+# 5. requirements.txt 복사
+COPY stt_api/requirements.txt .
+
+# 6. PyTorch (CPU 전용) 설치 ★가장 중요★
+# CUDA가 포함되지 않아 설치가 훨씬 빠르고 가볍습니다.
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# 7. 나머지 패키지 설치
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 8. 소스 코드 복사
+COPY . .
