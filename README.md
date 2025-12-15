@@ -56,52 +56,68 @@ OLLAMA_MODEL_NAME=gemma3
 ## 📂 프로젝트 구조
 
 ```bash
-stt_api/
-├── __init__.py                    # 패키지 초기화
-├── main.py                        # FastAPI 애플리케이션 진입점 (서버 실행, 라우터 등록)
+.
+├── docker-compose.yml             # GPU 모드 실행 설정
+├── docker-compose.cpu.yml         # CPU 모드 실행 설정
+├── run-gpu.sh / run-cpu.sh        # 간편 실행 스크립트
+├── requirements.txt               # 의존성 패키지 목록
 │
-├── core/                          # 🔧 핵심 설정 및 인프라
-│   ├── __init__.py
-│   ├── config.py                  # 환경 설정 관리 (Settings, Constants, active_jobs)
-│   ├── celery_config.py           # Celery 작업 큐 설정 (브로커, 워커)
-│   ├── logging_config.py          # 구조화된 로깅 시스템 (JSON/컬러 포맷, StructuredLogger)
-│   └── exceptions.py              # 커스텀 예외 정의 (CustomException, 도메인별 예외)
-│
-├── domain/                        # 📦 도메인 모델 (비즈니스 엔티티)
-│   ├── __init__.py
-│   └── streaming_job.py           # 실시간 스트림 작업 모델 (VAD, 대화록 관리)
-│
-├── services/                      # 🛠️ 비즈니스 로직 서비스
-│   ├── __init__.py
-│   │
-│   ├── stt/                       # 🎤 음성-텍스트 변환 (STT)
-│   │   ├── __init__.py            # 서비스 진입점 (함수 노출)
-│   │   ├── whisper_service.py     # Whisper 모델 STT (배치/스트리밍 변환)
-│   │   └── vad_processor.py       # 음성 활동 감지 (VAD, 실시간 세그먼트 분리)
-│   │
-│   ├── llm/                       # 🤖 LLM 요약 서비스
-│   │   ├── __init__.py            # 프로바이더 자동 선택 (Ollama/LM Studio)
-│   │   ├── base_llm_service.py    # LLM 서비스 추상 클래스 (인터페이스 정의)
-│   │   ├── ollama_service.py      # Ollama LLM 구현체 (로컬 LLM)
-│   │   └── lm_service.py          # LM Studio 구현체 (OpenAI 호환 API)
-│   │
-│   ├── storage/                   # 💾 데이터 저장 및 작업 관리
-│   │   ├── __init__.py            # 서비스 통합 진입점
-│   │   ├── job_manager.py         # 작업 생명주기 통합 관리 (DB + Redis 조율)
-│   │   ├── database_service.py    # DB 추상화 레이어 (PostgreSQL/MySQL 대비)
-│   │   └── cache_service.py       # Redis 캐시 서비스 (빠른 조회, Pub/Sub)
-│   │
-│   ├── pipeline/                  # 🔄 워크플로우 파이프라인
-│   │   ├── __init__.py
-│   │   ├── batch_pipeline.py      # 배치 처리 파이프라인 (파일 업로드 → STT → 요약)
-│   │   └── stream_pipeline.py     # 실시간 스트리밍 파이프라인 (WebSocket → VAD → STT → 요약)
-│   │
-│   └── tasks.py                   # ⚙️ Celery 백그라운드 작업 (비동기 파이프라인 실행)
-│
-└── api/                           # 🌐 FastAPI 엔드포인트
+└── stt_api/                       # 🐍 메인 애플리케이션 패키지
     ├── __init__.py
-    ├── batch_endpoints.py         # 배치 작업 API (POST /request, GET /result, SSE /stream-events)
-    └── stream_endpoints.py        # 실시간 스트림 API (POST /create, WebSocket /ws)
+    ├── main.py                    # FastAPI 진입점 (Lifespan, 미들웨어, 라우터 설정)
+    │
+    ├── api/                       # 🌐 API 엔드포인트
+    │   ├── __init__.py
+    │   ├── batch_endpoints.py     # 파일 업로드 배치 처리 (POST /request, SSE)
+    │   ├── stream_endpoints.py    # 실시간 WebSocket 스트리밍 (Google / Faster-Whisper)
+    │   └── stream_endpoints_whisperlive.py # WhisperLiveKit 전용 스트리밍 엔드포인트
+    │
+    ├── core/                      # ⚙️ 핵심 설정 및 인프라
+    │   ├── __init__.py
+    │   ├── config.py              # 환경 변수 및 상수 관리 (Settings)
+    │   ├── celery_config.py       # Celery 비동기 큐 설정 (Redis)
+    │   ├── database.py            # DB 엔진 및 세션 관리 (SQLAlchemy Async)
+    │   ├── logging_config.py      # 구조화된 로깅 (JSON/Color Formatter)
+    │   └── exceptions.py          # 커스텀 예외 클래스 정의
+    │
+    ├── domain/                    # 📦 도메인 모델
+    │   ├── __init__.py
+    │   └── streaming_job.py       # 스트리밍 작업 상태 및 버퍼 관리 객체
+    │
+    ├── models/                    # 🗄️ 데이터베이스 스키마 (ORM)
+    │   ├── __init__.py
+    │   └── database_models.py     # MariaDB 테이블 매핑 (STTJob, STTSegment, STTRoom)
+    │
+    └── services/                  # 🛠️ 비즈니스 로직 서비스
+        ├── __init__.py
+        ├── tasks.py               # Celery 백그라운드 작업 (배치/방 요약)
+        ├── audio_converter.py     # 오디오 리샘플링 및 포맷 변환 유틸리티
+        │
+        ├── stt/                   # 🎤 STT 엔진 모듈
+        │   ├── __init__.py
+        │   ├── stt_factory.py     # STT 엔진 선택 팩토리 (Google vs Local)
+        │   ├── whisper_service.py # Faster-Whisper 구현체 (VAD 포함)
+        │   ├── whisperlive_service.py # WhisperLiveKit 구현체 (실시간성 강화)
+        │   ├── google_stt_service.py  # Google Cloud STT 구현체
+        │   └── vad_processor.py   # 음성 활동 감지 (Silero VAD)
+        │
+        ├── llm/                   # 🧠 LLM 요약 서비스
+        │   ├── __init__.py
+        │   ├── base_llm_service.py # LLM 인터페이스 (추상 클래스)
+        │   ├── gemini_service.py   # Google Gemini 구현체
+        │   ├── ollama_service.py   # Ollama (Local) 구현체
+        │   └── lm_service.py       # LM Studio 구현체
+        │
+        ├── storage/               # 💾 데이터 저장 및 관리
+        │   ├── __init__.py
+        │   ├── job_manager.py     # 작업 생명주기 통합 관리 (DB + Redis 파사드)
+        │   ├── database_service.py # DB CRUD 로직
+        │   └── cache_service.py   # Redis 캐시 및 Pub/Sub 메시징
+        │
+        └── pipeline/              # 🔄 처리 파이프라인
+            ├── __init__.py
+            ├── batch_pipeline.py  # 배치 처리 워크플로우 (파일 -> STT -> 요약)
+            └── stream_pipeline.py # 스트리밍 워크플로우 (청크 -> VAD -> STT -> 큐)
 ```
 
 
@@ -115,30 +131,36 @@ stt_api/
 sequenceDiagram
     participant C as Client (App)
     participant API as API Server
+    participant DB as MariaDB
     participant R as Redis (Pub/Sub)
     participant W as Celery Worker
-    participant L as LLM (Ollama)
+    participant L as LLM (Ollama/Gemini)
 
-    Note over C, API: 1단계: 작업 요청
+    Note over C, W: 1단계: 작업 요청
     C->>API: POST /request (Audio File)
-    API->>R: Create Job (Pending)
+    API->>DB: Create Job (PENDING)
+    API->>R: Cache Job Info
     API->>W: Task Queueing (Celery)
     API-->>C: Return {job_id}
 
-    Note over C, API: 2단계: 실시간 이벤트 구독
+    Note over C, W: 2단계: 실시간 이벤트 구독 (안정성 강화)
     C->>API: GET /stream-events/{job_id}
+    API->>DB: Fetch Past Segments
+    API-->>C: Send Historical Data (If any)
     API->>R: Subscribe (Pub/Sub)
 
     Note over W, L: 3단계: 백그라운드 처리
-    W->>W: STT Processing (Whisper)
+    W->>W: STT Processing
     loop Every Segment
+        W->>DB: Save Segment
         W->>R: Publish "transcript_segment"
         R-->>API: Event Message
-        API-->>C: SSE Send (Segment Text)
+        API-->>C: SSE Send (Real-time)
     end
 
-    W->>L: Request Summary (Full Text)
+    W->>L: Request Summary (Full Transcript)
     L-->>W: Return JSON Summary
+    W->>DB: Update Job (COMPLETED, Summary)
     W->>R: Publish "final_summary"
     R-->>API: Event Message
     API-->>C: SSE Send (Final Summary)
@@ -155,25 +177,39 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant C as Client
-    participant API as API (WebSocket)
-    participant VAD as VAD Processor
-    participant STT as Whisper Service
+    participant C as Client (WebRTC)
+    participant API as API Server (WS)
+    participant AC as AudioConverter
+    participant P as StreamPipeline
+    participant STT as Whisper/Google
+    participant DB as MariaDB
 
-    C->>API: Connect WebSocket
-    
-    loop Audio Stream (30ms Chunk)
+    Note over C, API: 1단계: 연결 및 스트리밍
+    C->>API: WebSocket Connect
+    API-->>C: Connection Success
+
+    loop Audio Stream (Opus/WebM/PCM)
         C->>API: Send Binary Chunk
-        API->>VAD: Process Chunk
+        API->>AC: Convert to 16kHz PCM
+        AC->>P: 30ms Frame
         
-        alt Voice Detected (Segment Complete)
-            VAD->>STT: Transcribe Segment (Thread)
-            STT-->>API: Return Text
+        P->>P: VAD Check (Silero)
+        
+        alt Voice Detected
+            P->>STT: Transcribe (Worker Thread)
+            STT-->>P: Text Segment
+            P->>DB: Save Segment (Insert)
+            P-->>API: Yield Result
             API-->>C: Send JSON {"type": "transcript_segment"}
         end
     end
 
-    C->>API: Disconnect
-    API->>STT: Finalize & Summarize
-    API-->>C: Send Final Result
+    Note over C, DB: 2단계: 종료 및 요약
+    C->>API: Disconnect / End
+    API->>P: Finalize (Flush Buffer)
+    P->>STT: Transcribe Remaining
+    
+    P->>P: Generate Summary (LLM)
+    P->>DB: Update Job (COMPLETED, Summary)
+    API-->>C: Send Final Result {"type": "final_summary"}
 ```
