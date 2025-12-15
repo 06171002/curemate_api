@@ -46,7 +46,7 @@ def load_stt_model() -> None:
             device=settings.STT_DEVICE_TYPE,
             compute_type=settings.STT_COMPUTE_TYPE,
             # ✅ 추가 최적화 옵션
-            cpu_threads=4,  # CPU 스레드 수
+            cpu_threads=8,  # CPU 스레드 수
             num_workers=1  # 워커 수
         )
 
