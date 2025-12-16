@@ -247,7 +247,7 @@ def transcribe_segment_from_bytes(
 
     total_start = time.perf_counter()
 
-    logger.debug(
+    logger.info(
         "세그먼트 STT 시작",
         audio_size_bytes=len(audio_bytes),
         has_context=bool(initial_prompt)

@@ -25,13 +25,17 @@ services:
     depends_on:
       - redis # (Redis가 켜진 후에 API 서버가 켜지도록 설정)
     environment:
-      - DB_HOST=${DB_HOST:-210.116.103.144}
-      - DB_PORT=${DB_PORT:-3306}
-      - DB_NAME=${DB_NAME:-curemate}
-      - DB_USER=${DB_USER:-uds}
-      - DB_PASSWORD=${DB_PASSWORD:-275506%)}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - STT_DEVICE_TYPE=cpu
+      - STT_ENGINE=faster-whisper
+      - STT_MODEL_SIZE=small
+      - STT_COMPUTE_TYPE=int8
       - GOOGLE_APPLICATION_CREDENTIALS=/app/google-key.json
-      - GEMINI_API_KEY=AIzaSyDSZlPNnwcwxG6MUfDX_QRTrImQN8VUlKk
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
 
   # 3. Celery 워커 서비스 (★ Windows 오류 해결!)
   worker:
@@ -45,10 +49,14 @@ services:
     depends_on:
       - redis
     environment: # ✅ [추가 2] 환경 변수 설정이 필요합니다.
-      - DB_HOST=${DB_HOST:-210.116.103.144}
-      - DB_PORT=${DB_PORT:-3306}
-      - DB_NAME=${DB_NAME:-curemate}
-      - DB_USER=${DB_USER:-uds}
-      - DB_PASSWORD=${DB_PASSWORD:-275506%)}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - STT_DEVICE_TYPE=cpu
+      - STT_ENGINE=faster-whisper
+      - STT_MODEL_SIZE=small
+      - STT_COMPUTE_TYPE=int8
       - GOOGLE_APPLICATION_CREDENTIALS=/app/google-key.json
-      - GEMINI_API_KEY=AIzaSyDSZlPNnwcwxG6MUfDX_QRTrImQN8VUlKk
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
